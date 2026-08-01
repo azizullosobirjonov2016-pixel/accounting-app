@@ -92,6 +92,12 @@ Suggested API endpoints (example):
 - [ ] Scaffold `employee` and `payroll` modules in UI and storage
 - [ ] Add server scaffold (Express + SQLite) with basic sync endpoints
 
+## Qo'shimcha resurslar
+- `AGENTS.md` — loyiha uchun AI agent qo'llanmasi
+- `CLAUDE.md` — Claude agentga mos qisqacha dokument
+- `ishlar/TASKS.md` — vazifalar ro'yxati va batafsil bajarish tavsifi
+- `ishlar/STATUS.md` — vazifalar holati va prioritetlar
+- `ishlar/DEBUGGING.md` — debugging va muammo yechimlari
 
 ---
 Generated on: 

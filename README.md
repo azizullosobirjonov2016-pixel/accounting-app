@@ -118,6 +118,14 @@ Bu tizim O'zbekiston Respublikasining soliq qoidalariga asosan buxgalteriya hiso
 
 ---
 
+### 📚 Qo'shimcha dokumentatsiya
+- Batafsil AI agent yo'riqnomasi: [`AGENTS.md`](./AGENTS.md)
+- Claude agent uchun orientatsion hujjat: [`CLAUDE.md`](./CLAUDE.md)
+- Task boshqaruvi va holat monitoringi: [`ishlar/TASKS.md`](./ishlar/TASKS.md), [`ishlar/STATUS.md`](./ishlar/STATUS.md)
+- Debug va xatoliklar: [`ishlar/DEBUGGING.md`](./ishlar/DEBUGGING.md)
+
+---
+
 ### 💾 Ma'lumotlarni Boshqarish
 
 #### Zaxiraga Olingan Faylni Yuklash (Backup)
