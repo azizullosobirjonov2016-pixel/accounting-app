@@ -1,0 +1,200 @@
+{
+  "clients": [
+    {
+      "id": "1709865600000",
+      "name": "ABC Savdo Kompaniyasi",
+      "stir": "123456789012",
+      "phone": "+998901234567",
+      "address": "Tashkent sh., Mirzo Ulug'bek tumani, 1-uy",
+      "createdAt": "2024-03-08T10:00:00.000Z"
+    },
+    {
+      "id": "1709865700000",
+      "name": "XYZ Xizmatlar OOJ",
+      "stir": "210987654321",
+      "phone": "+998905566778",
+      "address": "Samarqand sh., Markazi tumanida",
+      "createdAt": "2024-03-08T10:05:00.000Z"
+    },
+    {
+      "id": "1709865800000",
+      "name": "Bukhoro Import-Export SHXK",
+      "stir": "309876543210",
+      "phone": "+998933445566",
+      "address": "Bukhoro viloyati, Bukhoro shahri",
+      "createdAt": "2024-03-08T10:10:00.000Z"
+    }
+  ],
+  "suppliers": [
+    {
+      "id": "1709865900000",
+      "name": "Material Savdo LLC",
+      "stir": "456789012345",
+      "phone": "+998907778899",
+      "address": "Tashkent sh., Yunusobod tumani",
+      "productType": "materials",
+      "createdAt": "2024-03-08T10:15:00.000Z"
+    },
+    {
+      "id": "1709866000001",
+      "name": "Uskuna Import Kompaniyasi",
+      "stir": "567890123456",
+      "phone": "+998911223344",
+      "address": "Farg'ona viloyati, Farg'ona shahri",
+      "productType": "equipment",
+      "createdAt": "2024-03-08T10:20:00.000Z"
+    },
+    {
+      "id": "1709866100002",
+      "name": "Transport Xizmatlari MCHJ",
+      "stir": "678901234567",
+      "phone": "+998935556677",
+      "address": "Andijon viloyati, Andijon shahri",
+      "productType": "transport",
+      "createdAt": "2024-03-08T10:25:00.000Z"
+    }
+  ],
+  "transactions": [
+    {
+      "id": "1709866000000",
+      "date": "2024-02-01",
+      "clientId": "1709865600000",
+      "supplierId": "",
+      "type": "income",
+      "category": "sales",
+      "amount": 5000000,
+      "description": "Qurg'on uskunalarini sotdi",
+      "createdAt": "2024-03-08T10:20:00.000Z"
+    },
+    {
+      "id": "1709866100000",
+      "date": "2024-02-02",
+      "clientId": "1709865700000",
+      "supplierId": "",
+      "type": "income",
+      "category": "services",
+      "amount": 2500000,
+      "description": "Konsultatsiya xizmati",
+      "createdAt": "2024-03-08T10:21:00.000Z"
+    },
+    {
+      "id": "1709866200000",
+      "date": "2024-02-03",
+      "clientId": "",
+      "supplierId": "1709865900000",
+      "type": "expense",
+      "category": "materials",
+      "amount": 1500000,
+      "description": "Talqin materiallar xaridi",
+      "createdAt": "2024-03-08T10:22:00.000Z"
+    },
+    {
+      "id": "1709866300000",
+      "date": "2024-02-05",
+      "clientId": "",
+      "supplierId": "",
+      "type": "expense",
+      "category": "salaries",
+      "amount": 3000000,
+      "description": "Favrul oyning ishchilarga ish haqi",
+      "createdAt": "2024-03-08T10:23:00.000Z"
+    },
+    {
+      "id": "1709866400000",
+      "date": "2024-02-07",
+      "clientId": "",
+      "supplierId": "",
+      "type": "expense",
+      "category": "rent",
+      "amount": 500000,
+      "description": "Birja ijarasiga to'lov",
+      "createdAt": "2024-03-08T10:24:00.000Z"
+    },
+    {
+      "id": "1709866500000",
+      "date": "2024-02-10",
+      "clientId": "1709865600000",
+      "supplierId": "",
+      "type": "income",
+      "category": "sales",
+      "amount": 8500000,
+      "description": "Qo'shimcha sotuvlar",
+      "createdAt": "2024-03-08T10:25:00.000Z"
+    },
+    {
+      "id": "1709866600000",
+      "date": "2024-02-12",
+      "clientId": "",
+      "supplierId": "",
+      "type": "expense",
+      "category": "utilities",
+      "amount": 250000,
+      "description": "Elektr energiya to'lovi",
+      "createdAt": "2024-03-08T10:26:00.000Z"
+    },
+    {
+      "id": "1709866700000",
+      "date": "2024-02-15",
+      "clientId": "1709865800000",
+      "supplierId": "",
+      "type": "income",
+      "category": "sales",
+      "amount": 6000000,
+      "description": "Silk mahsulotlarini sotdi",
+      "createdAt": "2024-03-08T10:27:00.000Z"
+    },
+    {
+      "id": "1709866800000",
+      "date": "2024-02-18",
+      "clientId": "",
+      "supplierId": "1709866100002",
+      "type": "expense",
+      "category": "transport",
+      "amount": 1200000,
+      "description": "Tovar yetkazib berish xarajlari",
+      "createdAt": "2024-03-08T10:28:00.000Z"
+    },
+    {
+      "id": "1709866900000",
+      "date": "2024-02-20",
+      "clientId": "1709865700000",
+      "supplierId": "",
+      "type": "income",
+      "category": "services",
+      "amount": 3500000,
+      "description": "Hamrohat ko'chirish xizmati",
+      "createdAt": "2024-03-08T10:29:00.000Z"
+    },
+    {
+      "id": "1709867000000",
+      "date": "2024-02-25",
+      "clientId": "",
+      "supplierId": "1709865900000",
+      "type": "expense",
+      "category": "materials",
+      "amount": 2000000,
+      "description": "G'alaba uchun material xaridi",
+      "createdAt": "2024-03-08T10:30:00.000Z"
+    },
+    {
+      "id": "1709867100000",
+      "date": "2024-02-28",
+      "clientId": "1709865600000",
+      "supplierId": "",
+      "type": "income",
+      "category": "sales",
+      "amount": 4500000,
+      "description": "Favrul oyning oxirgi sotuvlar",
+      "createdAt": "2024-03-08T10:31:00.000Z"
+    }
+  ],
+  "settings": {
+    "taxCulture": 1,
+    "taxVAT": 12,
+    "taxIncome": 15,
+    "taxSSV": 5,
+    "autoCalculateTax": true,
+    "notifications": true
+  },
+  "exportedAt": "2024-03-08T10:32:00.000Z"
+}

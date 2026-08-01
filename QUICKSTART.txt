@@ -1,0 +1,178 @@
+📚 TEZKOR BOSHLASH QOLLANMASI
+O'zbekiston Buxgalteriya Hisobi Dasturi 1.0
+
+═══════════════════════════════════════════════════════════
+
+🎯 1-QADAM: DASTURNI OCHISH
+
+✓ index.html faylni ikki martan bosing yoki brauzerni oching va faylni drag-drop qiling
+✓ Brauzer yochildi va dastur ko'rinsa - tayyorsiz!
+✓ Dastur OFFLINE ishlaydi, internetga ehtiyoj yo'q
+
+
+═══════════════════════════════════════════════════════════
+
+⚙️ 2-QADAM: BOSHLANG'ICH SOZLAMALAR
+
+1. "Sozlamalar" tab'iga oching
+2. O'zbekiston soliq stavkalarini ko'rib chiqing:
+   - Daromad soliq: 15% ✓
+   - QQS: 12% ✓
+   - Madaniyat tori: 1% ✓
+   - Ishchi birligi: 5% ✓
+3. "Saqlash" tugmasini bosing
+4. Zaxira qilish mumkin ("Zaxiraga Olingan Faylni Yuklash")
+
+
+═══════════════════════════════════════════════════════════
+
+👥 3-QADAM: MIJOZ QO'SHISH
+
+1. "Mijozlar" tab'iga oching
+2. "Yangi Mijoz Qo'shish" formani to'ldiring:
+   ✓ Nomi/Kompaniya: masalan "ABC Savdo Kompaniyasi"
+   ✓ STIR: masalan "123456789012" (12 raqamli kod)
+   ✓ Telefon: "+998..."
+   ✓ Manzil: "Tashkent sh., Markazi tumani, 1-uy"
+3. "Qo'shish" tugmasini bosing
+4. Mijoz ro'yxatida paydo bo'ladi
+#### 4-QADAM: YETKAZIB BERUVCHI QO'SHISH
+
+1. "Yetkazib Beruvchilar" tab'iga oching
+2. "Yangi Yetkazib Beruvchi Qo'shish" formani to'ldiring:
+   ✓ Nomi/Kompaniya: masalan "Material Savdo LLC"
+   ✓ STIR: masalan "456789012345" (12 raqamli kod)
+   ✓ Telefon: "+998..."
+   ✓ Manzil: "Tashkent sh., Yunusobod tumani"
+   ✓ Mahsulot turi: Materiallar, Uskunalar, Xizmatlar, Transport, Boshqa
+3. "Qo'shish" tugmasini bosing
+4. Yetkazib beruvchi ro'yxatida paydo bo'ladi
+
+═══════════════════════════════════════════════════════════
+
+💰 4-QADAM: TRANZAKSIYA QILISH
+
+1. "Tranzaksiyalar" tab'iga oching
+2. "Yangi Tranzaksiya Qo'shish" formani to'ldiring:
+   ✓ Sana: Qachon bo'lishi? (bugun tanlangan)
+   ✓ Mijoz: Yuqorida qo'shgan mijozni tanlang
+   ✓ Turi: "Daromad" yoki "Chiqim"
+   ✓ Kategoriya: 
+     - DAROMAD uchun: Sotuvlar, Xizmatlar
+     - CHIQIM uchun: Materiallar, Ish haqi, Ijara, Kommunal, Transport
+   ✓ Summa: Pul miqdori (butun sonlar)
+   ✓ Tavsifi: Qisqacha izoh
+3. "Qo'shish" tugmasini bosing
+4. Tranzaksiya jadvalda ko'rinadi
+5. "Bosh Sahifa"da statistika avtomatik yangilanadi
+
+
+═══════════════════════════════════════════════════════════
+
+📊 5-QADAM: HISOBOTLAR YARATISH
+
+1. "Hisobotlar" tab'iga oching
+2. Davr tanlang:
+   ⚪ Oy bo'yicha - bu ay uchun
+   ⚪ Chorak bo'yicha - 3 oy birga
+   ⚪ Yil bo'yicha - butun yil
+   ⚪ Maxsus davr - o'zingiz kiritish
+3. "Hisobot Yaratish" tugmasini bosing
+4. Hisobotda ko'rinadi:
+   ✓ Jami daromad
+   ✓ Jami chiqim
+   ✓ Soliq miqdori
+   ✓ Toza foyda
+   ✓ Kategoriya bo'yicha taqsimot
+
+
+═══════════════════════════════════════════════════════════
+
+💾 6-QADAM: MA'LUMOTLARNI SAQLASH (BACKUP)
+
+1. "Sozlamalar" tab'iga oching
+2. "Zaxiraga Olingan Faylni Yuklash" tugmasini bosing
+3. JSON faylni kompyuteringizga saqlandi
+4. Misol: Backup_2024-03-08.json
+5. Bu faylni bir-ikki joyda saqlang:
+   - USB-flashka
+   - Google Drive
+   - OneDrive
+   - Email orqali
+
+
+═══════════════════════════════════════════════════════════
+
+✅ TEZKOR MASLAHATLAR
+
+1. FILTRLASH
+   - "Tranzaksiyalar"da sana oraligi bo'yicha filtrlash
+   - Turi bo'yicha (Daromad/Chiqim)
+   - "Filtrlash" tugmasini bosing
+
+2. EXCEL EXPORT
+   - "Hisobotlar"da "Excelga Chiqarish" tugmasini bosing
+   - HTML faylni saqlang
+   - MS Excel yoki Google Sheets'da oching
+
+3. XATO CORRECTING
+   - Xato tranzaksiyani "O'chirish" tugmasi bilan olib tashlang
+   - Mijozni "Tahrirlash" yoki "O'chirish" mumkin
+
+4. OFFLINE MODE
+   - Internet yo'q bo'lsa ham ishlaydi
+   - Ma'lumotlar brauzerdagi saqlashda qoladi
+
+
+═══════════════════════════════════════════════════════════
+
+⚠️ OGOHLANTIRISH
+
+❌ YAPAMANGLAR:
+- Brauzerni cache'ni o'chirib tashlama (ma'lumot o'chib ketadi)
+- Brauzerni "Private Mode"da ochma (har safar o'chib ketadi)
+- Ma'lumotlarni backup-ni olib salmang
+
+✅ YUQORIDA:
+- "Sozlamalar"da muntazam backup qiling
+- Muhim fayl/ma'lumotlarni joyida saqlang
+- Har oy oqibatini check qiling
+
+
+═══════════════════════════════════════════════════════════
+
+📞 KO'P BERILADIGAN SAVOLLAR
+
+S: Dastur borada qaysi joyda saqlanadi?
+J: Siz ochilib olgan brauzerdagi LocalStorage'da
+
+S: Agar brauzerni o'chirsam?
+J: Backup'ingiz bo'lsa, "Fayldan Qaytarish" bilan qaytarish mumkin
+
+S: Nechta mijoz qo'sha olaman?
+J: Unlimited - kompyuter xotirasiga qarab
+
+S: Soliq stavkalari o'zgarsa?
+J: "Sozlamalar"da o'zgartirib "Saqlash" bosing
+
+S: Mac/Linux'da ishlaydi?
+J: Ha, barcha operatsion tizimda ishlaydi
+
+S: Mobilda ishlaydi?
+J: Ha, telefon brauzeri bilan ochib ishlating
+
+
+═══════════════════════════════════════════════════════════
+
+🚀 NATIJA
+
+Muvaffaqiyatli buxgalteriya hisobni boshlang digan umid qilaymiz!
+
+Agar vaqtincha test qilmoqchi bo'lsangiz:
+→ Saqlangan "sample-data.json" faylni "Fayldan Qaytarish" orqali import qiling
+→ Misol tranzaksiyalar yuklandi va hisobotlar ko'ring
+
+O'zbestanlik bilan buxgalteriya yurita boshlang! 🎉
+
+
+═══════════════════════════════════════════════════════════

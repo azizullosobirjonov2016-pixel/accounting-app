@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ombor Boshqaruv Tizimi - Buxgalteriya Hisobi</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <!-- LOGIN MODAL -->
+    <div id="loginModal" class="modal active">
+        <div class="modal-content" style="max-width: 400px;">
+            <div class="modal-header">
+                <h2>🔐 Tizimga Kirish</h2>
+            </div>
+            <form id="loginForm" style="padding: 20px;">
+                <div class="form-group">
+                    <label>Foydalanuvchi nomi:</label>
+                    <input type="text" id="loginUsername" placeholder="Username kiriting" required>
+                </div>
+                <div class="form-group">
+                    <label>Parol:</label>
+                    <input type="password" id="loginPassword" placeholder="Parolni kiriting" required>
+                </div>
+                <div class="form-group">
+                    <label>Rol:</label>
+                    <select id="loginRole" required>
+                        <option value="user">Oddiy foydalanuvchi</option>
+                        <option value="manager">Menejeri</option>
+                        <option value="admin">Administrator</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%;">Kirish</button>
+                <div style="margin-top: 10px; text-align: center; font-size: 12px; color: #666;">
+                    <p>Test hisoblar:</p>
+                    <p>user/pass | manager/pass | admin/pass</p>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="container" id="mainApp" style="display: none;">
+        <!-- HEADER -->
+        <header class="header">
+            <div class="header-content">
+                <h1>🏢 Ombor Boshqaruv Tizimi</h1>
+                <p>Mukammal buxgalteriya hisobi va oson ombor boshqaruvi</p>
+            </div>
+            <div class="header-nav">
+                <button class="nav-btn active" data-tab="dashboard">Bosh Sahifa</button>
+                <button class="nav-btn" data-tab="inventory">Ombor</button>
+                <button class="nav-btn" data-tab="clients">Mijozlar</button>
+                <button class="nav-btn" data-tab="suppliers">Yetkazib Beruvchilar</button>
+                <button class="nav-btn" data-tab="transactions">Tranzaksiyalar</button>
+                <button class="nav-btn" data-tab="sales">Savdo</button>
+                <button class="nav-btn" data-tab="payroll">👥 Ish haqi</button>
+                <button class="nav-btn" data-tab="production">Ishlab chiqarish</button>
+                <button class="nav-btn" data-tab="reports">Hisobotlar</button>
+                <button class="nav-btn" data-tab="settings">Sozlamalar</button>
+            </div>
+            <div class="header-user" id="headerUser" style="display: flex; align-items: center; gap: 10px;">
+                <span id="userDisplay" style="font-size: 14px; color: #666;"></span>
+                <button id="logoutBtn" class="btn btn-danger" style="padding: 5px 10px; font-size: 12px;">Chiqish</button>
+            </div>
+        </header>
+
+        <!-- DASHBOARD TAB -->
+        <div class="tab-content active" id="dashboard">
+            <h2>📈 Bosh Sahifa</h2>
+            
+            <div class="dashboard-grid">
+                <div class="stat-card">
+                    <h3>Jami Daromad</h3>
+                    <p class="stat-value" id="totalIncome">0</p>
+                    <span class="stat-unit so'm">so'm</span>
+                </div>
+                <div class="stat-card">
+                    <h3>Jami Chiqim</h3>
+                    <p class="stat-value" id="totalExpense">0</p>
+                    <span class="stat-unit so'm">so'm</span>
+                </div>
+                <div class="stat-card">
+                    <h3>Jami Soliq</h3>
+                    <p class="stat-value" id="totalTax">0</p>
+                    <span class="stat-unit so'm">so'm</span>
+                </div>
+                <div class="stat-card">
+                    <h3>Toza Foyda</h3>
+                    <p class="stat-value" id="netProfit">0</p>
+                    <span class="stat-unit so'm">so'm</span>
+                </div>
+                <div class="stat-card">
+                    <h3>Ombor Qiymati</h3>
+                    <p class="stat-value" id="dashboardInventoryValue">0</p>
+                    <span class="stat-unit so'm">so'm</span>
+                </div>
+                <div class="stat-card">
+                    <h3>Past Zahira</h3>
+                    <p class="stat-value" id="dashboardLowStock">0</p>
+                    <span class="stat-unit">ta</span>
+                </div>
+            </div>
+
+            <div class="chart-section">
+                <h3>So'ngi Tranzaksiyalar</h3>
+                <table class="recent-transactions" id="recentTable">
+                    <thead>
+                        <tr>
+                            <th>Sana</th>
+                            <th>Tavsifi</th>
+                            <th>Turi</th>
+                            <th>Summa</th>
+                        </tr>
+                    </thead>
+                    <tbody id="recentTableBody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- INVENTORY TAB -->
+        <div class="tab-content" id="inventory">
+            <h2>📦 Ombor Boshqaruvi</h2>
+            
+            <div class="inventory-overview">
+                <div class="stat-card">
+                    <h3>Jami Mahsulotlar</h3>
+                    <p class="stat-value" id="totalProducts">0</p>
+                    <span class="stat-unit">ta</span>
+                </div>
+                <div class="stat-card">
+                    <h3>Umumiy Qiymat</h3>
+                    <p class="stat-value" id="totalInventoryValue">0</p>
+                    <span class="stat-unit so'm">so'm</span>
+                </div>
+                <div class="stat-card">
+                    <h3>Past Zahira</h3>
+                    <p class="stat-value" id="lowStockItems">0</p>
+                    <span class="stat-unit">ta</span>
+                </div>
+                <div class="stat-card">
+                    <h3>Tugagan Mahsulotlar</h3>
+                    <p class="stat-value" id="outOfStockItems">0</p>
+                    <span class="stat-unit">ta</span>
+                </div>
+            </div>
+
+            <div class="inventory-actions">
+                <button class="btn btn-primary" id="addProductBtn">Yangi Mahsulot Qo'shish</button>
+                <button class="btn btn-secondary" id="stockInBtn">Kirim (Ombor Kirimi)</button>
+                <button class="btn btn-secondary" id="stockOutBtn">Chiqim (Ombor Chiqimi)</button>
+                <button class="btn btn-info" id="adjustStockBtn">Zahira Tuzatish</button>
+            </div>
+
+            <!-- Add Product Modal -->
+            <div id="addProductModal" class="modal">
+                <div class="modal-content">
+                    <span class="close">&times;</span>
+                    <h3>Yangi Mahsulot Qo'shish</h3>
+                    <form id="productForm">
+                        <div class="form-grid">
+                            <div>
+                                <label>Mahsulot Nomi:</label>
+                                <input type="text" id="productName" required>
+                            </div>
+                            <div>
+                                <label>Kategoriya:</label>
+                                <select id="productCategory" required>
+                                    <option value="">-- Tanlang --</option>
+                                    <option value="electronics">Elektronika</option>
+                                    <option value="clothing">Kiyim</option>
+                                    <option value="food">Oziq-ovqat</option>
+                                    <option value="furniture">Mebel</option>
+                                    <option value="materials">Materiallar</option>
+                                    <option value="other">Boshqa</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label>Birlik:</label>
+                                <select id="productUnit" required>
+                                    <option value="dona">Dona</option>
+                                    <option value="kg">Kg</option>
+                                    <option value="litr">Litr</option>
+                                    <option value="metr">Metr</option>
+                                    <option value="quti">Quti</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label>Minimal Zahira:</label>
+                                <input type="number" id="minStock" min="0" value="10">
+                            </div>
+                            <div>
+                                <label>Sotib Olish Narxi (so'm):</label>
+                                <input type="number" id="purchasePrice" min="0" step="0.01">
+                            </div>
+                            <div>
+                                <label>Sotish Narxi (so'm):</label>
+                                <input type="number" id="sellingPrice" min="0" step="0.01">
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Qo'shish</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Stock Movement Modal -->
+            <div id="stockMovementModal" class="modal">
+                <div class="modal-content">
+                    <span class="close">&times;</span>
+                    <h3 id="stockMovementTitle">Ombor Harakati</h3>
+                    <form id="stockMovementForm">
+                        <div class="form-grid">
+                            <div>
+                                <label>Mahsulot:</label>
+                                <select id="movementProduct" required>
+                                    <option value="">-- Tanlang --</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label>Miqdor:</label>
+                                <input type="number" id="movementQuantity" min="1" required>
+                            </div>
+                            <div>
+                                <label>Sana:</label>
+                                <input type="date" id="movementDate" required>
+                            </div>
+                            <div>
+                                <label>Tavsif:</label>
+                                <input type="text" id="movementDescription" placeholder="Kirim/Chiqim sababi">
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary" id="movementSubmitBtn">Amalga oshirish</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Products List -->
+            <div class="products-list">
+                <h3>Mahsulotlar Ro'yxati</h3>
+                <div class="filters">
+                    <input type="text" id="productSearch" placeholder="Mahsulot nomini qidiring...">
+                    <select id="categoryFilter">
+                        <option value="">Barcha kategoriyalar</option>
+                        <option value="electronics">Elektronika</option>
+                        <option value="clothing">Kiyim</option>
+                        <option value="food">Oziq-ovqat</option>
+                        <option value="furniture">Mebel</option>
+                        <option value="materials">Materiallar</option>
+                        <option value="other">Boshqa</option>
+                    </select>
+                    <select id="stockFilter">
+                        <option value="">Barcha mahsulotlar</option>
+                        <option value="low">Past zahira</option>
+                        <option value="out">Tugagan</option>
+                        <option value="normal">Normal</option>
+                    </select>
+                </div>
+                <table class="products-table" id="productsTable">
+                    <thead>
+                        <tr>
+                            <th>Nomi</th>
+                            <th>Kategoriya</th>
+                            <th>Birlik</th>
+                            <th>Zahira</th>
+                            <th>Min. Zahira</th>
+                            <th>Sotib Olish</th>
+                            <th>Sotish</th>
+                            <th>Qiymat</th>
+                            <th>Amallar</th>
+                        </tr>
+                    </thead>
+                    <tbody id="productsTableBody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- CLIENTS TAB -->
+        <div class="tab-content" id="clients">
+            <h2>👥 Mijozlar va Faol Shaxslar</h2>
+            
+            <form id="clientForm" class="form-section">
+                <h3>Yangi Mijoz Qo'shish</h3>
+                <div class="form-grid">
+                    <div>
+                        <label>Nomi/Kompaniya:</label>
+                        <input type="text" id="clientName" required placeholder="SHXK nomi yoki LChJ nomi">
+                    </div>
+                    <div>
+                        <label>STIR (Soliq To'lovchisi ID):</label>
+                        <input type="text" id="clientSTIR" placeholder="12 raqamli kod">
+                    </div>
+                    <div>
+                        <label>Telefon:</label>
+                        <input type="tel" id="clientPhone" placeholder="+998...">
+                    </div>
+                    <div>
+                        <label>Manzil:</label>
+                        <input type="text" id="clientAddress" placeholder="To'liq manzil">
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary">Qo'shish</button>
+            </form>
+
+            <div class="clients-list">
+                <h3>Mavjud Mijozlar</h3>
+                <div id="clientsList" class="list-container">
+                </div>
+            </div>
+        </div>
+
+        <!-- SUPPLIERS TAB -->
+        <div class="tab-content" id="suppliers">
+            <h2>🚚 Yetkazib Beruvchilar</h2>
+            
+            <form id="supplierForm" class="form-section">
+                <h3>Yangi Yetkazib Beruvchi Qo'shish</h3>
+                <div class="form-grid">
+                    <div>
+                        <label>Nomi/Kompaniya:</label>
+                        <input type="text" id="supplierName" required placeholder="Yetkazib beruvchi nomi">
+                    </div>
+                    <div>
+                        <label>STIR (Soliq To'lovchisi ID):</label>
+                        <input type="text" id="supplierSTIR" placeholder="12 raqamli kod">
+                    </div>
+                    <div>
+                        <label>Telefon:</label>
+                        <input type="tel" id="supplierPhone" placeholder="+998...">
+                    </div>
+                    <div>
+                        <label>Manzil:</label>
+                        <input type="text" id="supplierAddress" placeholder="To'liq manzil">
+                    </div>
+                    <div>
+                        <label>Mahsulot turi:</label>
+                        <select id="supplierProductType">
+                            <option value="">-- Tanlang --</option>
+                            <option value="materials">Materiallar</option>
+                            <option value="equipment">Uskunalar</option>
+                            <option value="services">Xizmatlar</option>
+                            <option value="transport">Transport</option>
+                            <option value="other">Boshqa</option>
+                        </select>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary">Qo'shish</button>
+            </form>
+
+            <div class="suppliers-list">
+                <h3>Mavjud Yetkazib Beruvchilar</h3>
+                <div id="suppliersList" class="list-container">
+                </div>
+            </div>
+        </div>
+
+        <!-- TRANSACTIONS TAB -->
+        <div class="tab-content" id="transactions">
+            <h2>💰 Tranzaksiyalar</h2>
+            
+            <form id="transactionForm" class="form-section">
+                <h3>Yangi Tranzaksiya Qo'shish</h3>
+                <div class="form-grid">
+                    <div>
+                        <label>Sana:</label>
+                        <input type="date" id="transDate" required>
+                    </div>
+                    <div>
+                        <label>Mijoz:</label>
+                        <select id="transClient" required>
+                            <option value="">-- Tanlang --</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>Yetkazib Beruvchi:</label>
+                        <select id="transSupplier">
+                            <option value="">-- Tanlang --</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>Turi:</label>
+                        <select id="transType" required>
+                            <option value="income">Daromad / Xarid</option>
+                            <option value="expense">Chiqim / Xaraj</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>Kategoriya:</label>
+                        <select id="transCategory" required>
+                            <option value="">-- Tanlang --</option>
+                            <option value="sales">Sotuvlar</option>
+                            <option value="services">Xizmatlar</option>
+                            <option value="materials">Materiallar xaridi</option>
+                            <option value="salaries">Ishchilarga ish haqi</option>
+                            <option value="rent">Ijaraga to'lov</option>
+                            <option value="utilities">Kommunal xarajlar</option>
+                            <option value="transport">Transport xarajlari</option>
+                            <option value="other">Boshqa</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>Summa (so'm):</label>
+                        <input type="number" id="transAmount" required min="0" placeholder="0">
+                    </div>
+                    <div>
+                        <label>Tavsifi:</label>
+                        <input type="text" id="transDescription" placeholder="Qisqacha tavsif">
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary">Qo'shish</button>
+            </form>
+
+            <div class="transactions-list">
+                <h3>Barcha Tranzaksiyalar</h3>
+                <div class="filters">
+                    <input type="date" id="filterFromDate" placeholder="dan">
+                    <input type="date" id="filterToDate" placeholder="gacha">
+                    <select id="filterType">
+                        <option value="">Hammasini ko'rsatish</option>
+                        <option value="income">Faqat daromad</option>
+                        <option value="expense">Faqat chiqim</option>
+                    </select>
+                    <button class="btn btn-secondary" id="applyFilter">Filtrlash</button>
+                </div>
+                <table class="transactions-table" id="transactionsTable">
+                    <thead>
+                        <tr>
+                            <th>Sana</th>
+                            <th>Mijoz</th>
+                            <th>Yetkazib Beruvchi</th>
+                            <th>Kategoriya</th>
+                            <th>Turi</th>
+                            <th>Summa</th>
+                            <th>Amallar</th>
+                        </tr>
+                    </thead>
+                    <tbody id="transactionsTableBody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- SALES TAB -->
+        <div class="tab-content" id="sales">
+            <h2>🧾 Savdo va Sotuv Hujjatlari</h2>
+
+            <form id="invoiceForm" class="form-section">
+                <h3>Yangi Sotuv Hujjati</h3>
+                <div class="form-grid">
+                    <div>
+                        <label>Invoice №:</label>
+                        <input type="text" id="invoiceNumber" readonly placeholder="Avtomatik son">
+                    </div>
+                    <div>
+                        <label>Sana:</label>
+                        <input type="date" id="invoiceDate" required>
+                    </div>
+                    <div>
+                        <label>Mijoz:</label>
+                        <select id="invoiceClient" required>
+                            <option value="">-- Tanlang --</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>Xarid / Sotuv maydoni:</label>
+                        <input type="text" id="invoiceDescription" placeholder="Sotuv tavsifi yoki buyurtma №">
+                    </div>
+                </div>
+
+                <div class="production-materials">
+                    <h4>Sotuv mahsulotlari</h4>
+                    <div id="invoiceLineRows"></div>
+                    <button type="button" class="btn btn-secondary" id="addInvoiceLineBtn">Mahsulot qo'shish</button>
+                </div>
+
+                <div class="production-cost-summary">
+                    <p><strong>Jami sotuv qiymati:</strong> <span id="invoiceTotalPreview">0 so'm</span></p>
+                </div>
+
+                <button type="submit" class="btn btn-primary">Invoice yaratish</button>
+            </form>
+
+            <div class="production-list">
+                <h3>Sotuv hujjatlari</h3>
+                <table class="transactions-table" id="invoiceTable">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Sana</th>
+                            <th>Mijoz</th>
+                            <th>Jami</th>
+                            <th>Status</th>
+                            <th>Amallar</th>
+                        </tr>
+                    </thead>
+                    <tbody id="invoiceTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- PAYROLL TAB -->
+        <div class="tab-content" id="payroll">
+            <h2>👥 Ish haqi va Xodimlar</h2>
+
+            <div class="payroll-grid">
+                <div class="form-section">
+                    <h3>Yangi Xodim</h3>
+                    <form id="employeeForm">
+                        <div class="form-grid">
+                            <div>
+                                <label>Ism Familiya:</label>
+                                <input type="text" id="employeeName" required>
+                            </div>
+                            <div>
+                                <label>Lavozim:</label>
+                                <input type="text" id="employeePosition">
+                            </div>
+                            <div>
+                                <label>Oyma-oy ish haqi (so'm):</label>
+                                <input type="number" id="employeeSalary" min="0" value="0">
+                            </div>
+                            <div>
+                                <label>Soliq stavkasi (%):</label>
+                                <input type="number" id="employeeTaxRate" min="0" max="100" step="0.1" value="15">
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary" id="addEmployeeBtn">Xodim qo'shish</button>
+                    </form>
+
+                    <h4>Mavjud xodimlar</h4>
+                    <div id="employeesList" class="list-container"></div>
+                </div>
+
+                <div class="form-section">
+                    <h3>Ish haqi yozuvi</h3>
+                    <form id="payrollForm">
+                        <div class="form-grid">
+                            <div>
+                                <label>Xodim:</label>
+                                <select id="payrollEmployee" required>
+                                    <option value="">-- Tanlang --</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label>Davr (oy):</label>
+                                <input type="month" id="payrollPeriod" required>
+                            </div>
+                            <div>
+                                <label>Qo'shimcha/Bonus (so'm):</label>
+                                <input type="number" id="payrollBonus" min="0" value="0">
+                            </div>
+                            <div>
+                                <label>Ajratmalar (so'm):</label>
+                                <input type="number" id="payrollDeductions" min="0" value="0">
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Ish haqini yozish</button>
+                    </form>
+
+                    <h4>Ish haqi yozuvlari</h4>
+                    <table class="transactions-table">
+                        <thead>
+                            <tr>
+                                <th>Sana</th>
+                                <th>Xodim</th>
+                                <th>Davr</th>
+                                <th>Brutto</th>
+                                <th>Deduktsiya</th>
+                                <th>Netto</th>
+                                <th>Amallar</th>
+                            </tr>
+                        </thead>
+                        <tbody id="payrollTableBody"></tbody>
+                    </table>
+
+                    <div id="payrollSummary" class="summary-box"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- PRODUCTION TAB -->
+        <div class="tab-content" id="production">
+            <h2>🏭 Ishlab chiqarish</h2>
+
+            <form id="productionForm" class="form-section">
+                <h3>Ishlab chiqarish Buyurtmasi</h3>
+                <div class="form-grid">
+                    <div>
+                        <label>Sana:</label>
+                        <input type="date" id="productionDate" required>
+                    </div>
+                    <div>
+                        <label>Mahsulot:</label>
+                        <select id="productionProduct" required>
+                            <option value="">-- Tanlang --</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>Retsept (BOM):</label>
+                        <select id="productionRecipeSelect">
+                            <option value="">-- Tanlang --</option>
+                        </select>
+                    </div>
+                    <div class="recipe-actions">
+                        <button type="button" class="btn btn-secondary" id="loadRecipeBtn">Retseptni yuklash</button>
+                    </div>
+                    <div>
+                        <label>Soni:</label>
+                        <input type="number" id="productionQuantity" min="1" value="1" required>
+                    </div>
+                    <div>
+                        <label>Tavsifi:</label>
+                        <input type="text" id="productionDescription" placeholder="Ishlab chiqarish maqsadi yoki buyurtma №">
+                    </div>
+                </div>
+
+                <div class="production-materials">
+                    <h4>Materiallar iste'moli</h4>
+                    <div id="materialUsageRows"></div>
+                    <button type="button" class="btn btn-secondary" id="addMaterialRowBtn">Material qo'shish</button>
+                </div>
+
+                <div class="production-cost-summary">
+                    <p><strong>Taksiflangan xarajat:</strong> <span id="productionCostPreview">0 so'm</span></p>
+                    <p><strong>Bir birlik xarajat:</strong> <span id="productionUnitCostPreview">0 so'm</span></p>
+                </div>
+
+                <button type="submit" class="btn btn-primary">Buyurtma yaratish</button>
+            </form>
+
+            <div class="production-list">
+                <h3>Ishlab chiqarish buyurtmalari</h3>
+                <table class="transactions-table" id="productionTable">
+                    <thead>
+                        <tr>
+                            <th>Sana</th>
+                            <th>Mahsulot</th>
+                            <th>Soni</th>
+                            <th>Materiallar</th>
+                            <th>Xarajat</th>
+                            <th>Amallar</th>
+                        </tr>
+                    </thead>
+                    <tbody id="productionTableBody"></tbody>
+                </table>
+            </div>
+
+            <div class="recipe-management">
+                <h3>Ishlab chiqarish Retseptlari (BOM)</h3>
+                <form id="recipeForm" class="form-section">
+                    <div class="form-grid">
+                        <div>
+                            <label>Mahsulot:</label>
+                            <select id="recipeProductSelect" required>
+                                <option value="">-- Tanlang --</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Retsept nomi:</label>
+                            <input type="text" id="recipeName" placeholder="Masalan: Yog'och shkafi uchun BOM" required>
+                        </div>
+                    </div>
+
+                    <div class="production-materials">
+                        <h4>Materiallar (bir birlik uchun)</h4>
+                        <div id="recipeMaterialRows"></div>
+                        <button type="button" class="btn btn-secondary" id="addRecipeMaterialRowBtn">Material qo'shish</button>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">Retsept saqlash</button>
+                </form>
+
+                <div class="recipe-list">
+                    <h4>Mavjud retseptlar</h4>
+                    <table class="transactions-table" id="recipeTable">
+                        <thead>
+                            <tr>
+                                <th>Mahsulot</th>
+                                <th>Retsept</th>
+                                <th>Materiallar</th>
+                                <th>Amallar</th>
+                            </tr>
+                        </thead>
+                        <tbody id="recipeTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- REPORTS TAB -->
+        <div class="tab-content" id="reports">
+            <h2>📋 Hisobotlar va Deklaratsiyalar</h2>
+            
+            <div class="report-controls">
+                <h3>Hisobot Davri:</h3>
+                <div class="period-selector">
+                    <label>
+                        <input type="radio" name="period" value="month" checked> Oy boyicha
+                    </label>
+                    <label>
+                        <input type="radio" name="period" value="quarter"> Chorak boyicha
+                    </label>
+                    <label>
+                        <input type="radio" name="period" value="year"> Yil boyicha
+                    </label>
+                    <label>
+                        <input type="radio" name="period" value="custom"> Maxsus davr
+                    </label>
+                </div>
+                
+                <div id="customPeriod" style="display:none; margin-top: 1rem;">
+                    <label>Boshlanish sanasi:</label>
+                    <input type="date" id="reportFromDate">
+                    <label>Bitish sanasi:</label>
+                    <input type="date" id="reportToDate">
+                </div>
+
+                <button class="btn btn-primary" id="generateReport">Hisobot Yaratish</button>
+                <button class="btn btn-secondary" id="exportReport">Excelga Chiqarish</button>
+            </div>
+
+            <div id="reportContent" class="report-content">
+                <!-- Hisobot bu yerda chiqariladi -->
+            </div>
+        </div>
+
+        <!-- SETTINGS TAB -->
+        <div class="tab-content" id="settings">
+            <h2>⚙️ Sozlamalar</h2>
+            
+            <div class="settings-section">
+                <h3>Soliq Stavkalari (O'zbekiston 2024-2026)</h3>
+                <form id="settingsForm" class="form-section">
+                    <div class="form-grid">
+                        <div>
+                            <label>Madaniy-mamlakat tori soliq stavkasi (%):</label>
+                            <input type="number" id="taxCulture" value="1" min="0" max="100" step="0.1">
+                        </div>
+                        <div>
+                            <label>Qo'shilgan qiymat soliq stavkasi (%):</label>
+                            <input type="number" id="taxVAT" value="12" min="0" max="100" step="0.1">
+                        </div>
+                        <div>
+                            <label>Daromad soliq stavkasi (%):</label>
+                            <input type="number" id="taxIncome" value="15" min="0" max="100" step="0.1">
+                        </div>
+                        <div>
+                            <label>Ishchi birligi soliq stavkasi (%):</label>
+                            <input type="number" id="taxSSV" value="5" min="0" max="100" step="0.1">
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Saqlash</button>
+                </form>
+
+                <h3>Loyiha Sozlamalarі</h3>
+                <div class="form-section">
+                    <label>
+                        <input type="checkbox" id="autoCalculateTax" checked>
+                        Soliqlarni avtomatik hisoblash
+                    </label>
+                    <label>
+                        <input type="checkbox" id="notifications" checked>
+                        Soliq muddatlari bo'yicha ogohlantirish
+                    </label>
+                </div>
+
+                <h3>Ma'lumotlarni Boshqarish</h3>
+                <div class="data-management">
+                    <button class="btn btn-warning" id="backupData">Zaxiraga Olingan Faylni Yuklash</button>
+                    <button class="btn btn-warning" id="restoreData">Fayldan Qaytarish</button>
+                    <input type="file" id="restoreInput" style="display:none;" accept=".json">
+                    <button class="btn btn-danger" id="clearData" onclick="return confirm('Barcha ma\'lumotlar o\'chib ketadi. Ishonch hosil qilamiz?')">Barcha Ma'lumotlarni O'chirish</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- FOOTER -->
+        <footer class="footer">
+            <p>&copy; 2024-2026 Buxgalteriya Hisobi Dasturi | O'zbekiston Respublikasi Soliq Siyosatiga muvofiq</p>
+        </footer>
+    </div>
+    </div>
+
+    <script src="js/storage.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
