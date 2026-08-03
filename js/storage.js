@@ -39,23 +39,35 @@ class StorageManager {
         }
         if (!this.get('users')) {
             this.set('users', [
-                { id: '1', username: 'user', password: 'pass', role: 'user', name: 'Oddiy Foydalanuvchi', createdAt: new Date().toISOString() },
-                { id: '2', username: 'manager', password: 'pass', role: 'manager', name: 'Menejeri', createdAt: new Date().toISOString() },
-                { id: '3', username: 'admin', password: 'pass', role: 'admin', name: 'Administrator', createdAt: new Date().toISOString() }
+                { id: '1', username: 'user', password: 'pass', role: 'user', name: "Oddiy Foydalanuvchi", createdAt: new Date().toISOString() },
+                { id: '2', username: 'manager', password: 'pass', role: 'manager', name: "Menejeri", createdAt: new Date().toISOString() },
+                { id: '3', username: 'admin', password: 'pass', role: 'admin', name: "Administrator", createdAt: new Date().toISOString() }
             ]);
         }
         if (!this.get('currentSession')) {
             this.set('currentSession', null);
         }
-            this.set('settings', {
-                taxCulture: 1,
-                taxVAT: 12,
-                taxIncome: 15,
-                taxSSV: 5,
-                autoCalculateTax: true,
-                notifications: true
-            });
+
+        // Currencies and exchange rates (local fallback)
+        if (!this.get('currencies')) {
+            this.set('currencies', [
+                { code: 'UZS', name: "Uzbekistani Som", symbol: "so'" },
+                { code: 'USD', name: 'US Dollar', symbol: '$' },
+                { code: 'EUR', name: 'Euro', symbol: '€' }
+            ]);
         }
+        if (!this.get('exchangeRates')) {
+            this.set('exchangeRates', []);
+        }
+
+        this.set('settings', {
+            taxCulture: 1,
+            taxVAT: 12,
+            taxIncome: 15,
+            taxSSV: 5,
+            autoCalculateTax: true,
+            notifications: true
+        });
     }
 
     set(key, value) {
@@ -420,6 +432,35 @@ class StorageManager {
         const filtered = invoices.filter(inv => inv.id !== id);
         this.set('invoices', filtered);
         return true;
+    }
+
+    // Local currencies (fallback for offline/admin)
+    addCurrency(currency) {
+        const list = this.get('currencies', []);
+        const existing = list.find(c => c.code === currency.code);
+        if (existing) {
+            Object.assign(existing, currency);
+        } else {
+            list.push(currency);
+        }
+        this.set('currencies', list);
+        return currency;
+    }
+
+    getCurrencies() {
+        return this.get('currencies', []);
+    }
+
+    addExchangeRate(rate) {
+        const rates = this.get('exchangeRates', []);
+        rate.id = Date.now().toString();
+        rates.push(rate);
+        this.set('exchangeRates', rates);
+        return rate;
+    }
+
+    getExchangeRates() {
+        return this.get('exchangeRates', []);
     }
 
     // Employees & Payroll

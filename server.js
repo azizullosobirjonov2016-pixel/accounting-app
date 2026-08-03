@@ -10,6 +10,7 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+const BASE_CURRENCY = process.env.BASE_CURRENCY || 'UZS';
 
 // Middleware
 app.use(cors());
@@ -127,6 +128,42 @@ const initializeDatabase = () => {
             date TEXT NOT NULL,
             createdAt TEXT NOT NULL
         )`);
+
+        // Currencies
+        db.run(`CREATE TABLE IF NOT EXISTS currencies (
+            code TEXT PRIMARY KEY,
+            name TEXT,
+            symbol TEXT
+        )`);
+
+        // Exchange rates
+        db.run(`CREATE TABLE IF NOT EXISTS exchange_rates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            from_currency TEXT,
+            to_currency TEXT,
+            rate REAL,
+            date TEXT,
+            source TEXT
+        )`);
+
+        // Ensure product/transaction columns for multi-currency exist
+        const addColumnIfNotExists = (table, columnName, columnDef) => {
+            db.all(`PRAGMA table_info(${table})`, (err, rows) => {
+                if (err) return console.error('PRAGMA error', err);
+                const exists = rows && rows.some(r => r.name === columnName);
+                if (!exists) {
+                    db.run(`ALTER TABLE ${table} ADD COLUMN ${columnDef}`,(err) => {
+                        if (err) console.error(`Could not add column ${columnName} to ${table}:`, err.message);
+                    });
+                }
+            });
+        };
+
+        addColumnIfNotExists('products', 'default_currency', "default_currency TEXT");
+        addColumnIfNotExists('transactions', 'currency', "currency TEXT");
+        addColumnIfNotExists('transactions', 'amount_base', "amount_base REAL");
+        addColumnIfNotExists('transactions', 'rate', "rate REAL");
+        addColumnIfNotExists('transactions', 'rate_date', "rate_date TEXT");
 
         console.log('Database schema initialized');
     });
@@ -278,6 +315,61 @@ app.delete('/api/products/:id', authenticate, (req, res) => {
     });
 });
 
+// ==================== CURRENCIES & EXCHANGE RATES ====================
+
+// Get supported currencies
+app.get('/api/currencies', authenticate, (req, res) => {
+    db.all('SELECT * FROM currencies', [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows || []);
+    });
+});
+
+// Add or update a currency (admin)
+app.post('/api/currencies', authenticate, (req, res) => {
+    if (!['admin', 'manager'].includes(req.user.role)) return res.status(403).json({ error: 'Forbidden' });
+    const { code, name, symbol } = req.body;
+    if (!code) return res.status(400).json({ error: 'Currency code required' });
+    db.run('INSERT OR REPLACE INTO currencies (code, name, symbol) VALUES (?, ?, ?)', [code, name, symbol], function (err) {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ code, name, symbol });
+    });
+});
+
+// Get exchange rate (latest or at date)
+app.get('/api/exchange-rates', authenticate, (req, res) => {
+    const { from, to } = req.query;
+    let { date } = req.query;
+    if (!from || !to) return res.status(400).json({ error: 'from and to query params required' });
+
+    if (date) {
+        // return the latest rate on or before date
+        db.get('SELECT * FROM exchange_rates WHERE from_currency = ? AND to_currency = ? AND date <= ? ORDER BY date DESC LIMIT 1', [from, to, date], (err, row) => {
+            if (err) return res.status(500).json({ error: err.message });
+            if (!row) return res.status(404).json({ error: 'Rate not found for the given date' });
+            res.json(row);
+        });
+    } else {
+        db.get('SELECT * FROM exchange_rates WHERE from_currency = ? AND to_currency = ? ORDER BY date DESC LIMIT 1', [from, to], (err, row) => {
+            if (err) return res.status(500).json({ error: err.message });
+            if (!row) return res.status(404).json({ error: 'Rate not found' });
+            res.json(row);
+        });
+    }
+});
+
+// Add exchange rate (admin)
+app.post('/api/exchange-rates', authenticate, (req, res) => {
+    if (!['admin', 'manager'].includes(req.user.role)) return res.status(403).json({ error: 'Forbidden' });
+    const { from_currency, to_currency, rate, date, source } = req.body;
+    if (!from_currency || !to_currency || !rate) return res.status(400).json({ error: 'from_currency, to_currency and rate are required' });
+    const d = date || new Date().toISOString();
+    db.run('INSERT INTO exchange_rates (from_currency, to_currency, rate, date, source) VALUES (?, ?, ?, ?, ?)', [from_currency, to_currency, rate, d, source || 'manual'], function (err) {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ id: this.lastID, from_currency, to_currency, rate, date: d, source: source || 'manual' });
+    });
+});
+
 // ==================== TRANSACTIONS ENDPOINTS ====================
 
 // Get transactions
@@ -290,15 +382,47 @@ app.get('/api/transactions', authenticate, (req, res) => {
 
 // Add transaction
 app.post('/api/transactions', authenticate, (req, res) => {
-    const { date, type, category, description, amount, status } = req.body;
+    const { date, type, category, description, amount, status, currency, rate, rate_date } = req.body;
     const transId = Date.now().toString();
 
-    db.run(
-        'INSERT INTO transactions (id, date, type, category, description, amount, status, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        [transId, date, type, category, description, amount, status, new Date().toISOString()],
-        function (err) {
+    const createdAt = new Date().toISOString();
+
+    const insertTransaction = (appliedRate, amountBase, appliedRateDate, usedCurrency) => {
+        db.run(
+            'INSERT INTO transactions (id, date, type, category, description, amount, status, currency, rate, amount_base, rate_date, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [transId, date, type, category, description, amount, status, usedCurrency, appliedRate, amountBase, appliedRateDate, createdAt],
+            function (err) {
+                if (err) return res.status(500).json({ error: err.message });
+                res.json({ id: transId, date, type, category, description, amount, status, currency: usedCurrency, rate: appliedRate, amount_base: amountBase, rate_date: appliedRateDate });
+            }
+        );
+    };
+
+    const usedCurrency = currency || BASE_CURRENCY;
+
+    if (!currency || currency === BASE_CURRENCY) {
+        insertTransaction(1, amount, date || createdAt, BASE_CURRENCY);
+        return;
+    }
+
+    if (rate && !isNaN(parseFloat(rate))) {
+        const r = parseFloat(rate);
+        insertTransaction(r, amount * r, rate_date || createdAt, usedCurrency);
+        return;
+    }
+
+    // Lookup latest exchange rate for currency -> base
+    db.get(
+        'SELECT rate, date FROM exchange_rates WHERE from_currency = ? AND to_currency = ? ORDER BY date DESC LIMIT 1',
+        [usedCurrency, BASE_CURRENCY],
+        (err, row) => {
             if (err) return res.status(500).json({ error: err.message });
-            res.json({ id: transId, date, type, category, description, amount, status });
+            if (row && row.rate) {
+                insertTransaction(row.rate, amount * row.rate, row.date || createdAt, usedCurrency);
+            } else {
+                // Fallback: store as base amount (rate=1)
+                insertTransaction(1, amount, date || createdAt, usedCurrency);
+            }
         }
     );
 });
@@ -446,4 +570,8 @@ app.listen(PORT, () => {
     console.log(`  GET    /api/payroll                 - Get payroll records`);
     console.log(`  POST   /api/payroll                 - Add payroll record`);
     console.log(`  GET    /api/statistics              - Get financial statistics\n`);
+    console.log(`  GET    /api/currencies              - List supported currencies`);
+    console.log(`  POST   /api/currencies              - Add or update currency (admin)`);
+    console.log(`  GET    /api/exchange-rates         - Get latest exchange rate (query: from,to[,date])`);
+    console.log(`  POST   /api/exchange-rates        - Add exchange rate (admin)`);
 });

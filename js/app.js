@@ -18,6 +18,7 @@ class AccountingApp {
             this.showMainApp();
         }
         this.setupEventListeners();
+        this.loadCurrencies();
         this.loadDashboard();
         this.updateClientDropdowns();
         this.updateSupplierDropdowns();
@@ -26,7 +27,259 @@ class AccountingApp {
         }
     }
 
-    setupLoginPage() {
+    async loadCurrencies() {
+        // Try server first, fallback to basic list
+        let list = [];
+        try {
+            if (api.useServer) {
+                const res = await api.getCurrencies();
+                if (Array.isArray(res)) list = res;
+            }
+        } catch (e) {
+            console.warn('Could not load currencies from server, falling back');
+        }
+
+        if (list.length === 0) {
+            // fallback to local storage currencies
+            list = storage.getCurrencies();
+            if (!list || list.length === 0) {
+                list = [
+                    { code: 'UZS', name: 'Uzbekistani Som', symbol: "so'" },
+                    { code: 'USD', name: 'US Dollar', symbol: '$' },
+                    { code: 'EUR', name: 'Euro', symbol: '€' }
+                ];
+            }
+        }
+
+        // Populate selects if present
+        const transCurrency = document.getElementById('transCurrency');
+        if (transCurrency) {
+            const cur = transCurrency.value;
+            transCurrency.innerHTML = '<option value="">-- Tanlang --</option>';
+            list.forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c.code;
+                opt.textContent = `${c.code} — ${c.name}`;
+                transCurrency.appendChild(opt);
+            });
+            transCurrency.value = cur;
+            transCurrency.addEventListener('change', () => this.updateTransactionAmountPreview());
+        }
+
+        const productCurrency = document.getElementById('productCurrency');
+        if (productCurrency) {
+            const cur = productCurrency.value;
+            productCurrency.innerHTML = '<option value="">-- Tanlang --</option>';
+            list.forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c.code;
+                opt.textContent = `${c.code} — ${c.name}`;
+                productCurrency.appendChild(opt);
+            });
+            productCurrency.value = cur;
+        }
+
+        const invoiceCurrency = document.getElementById('invoiceCurrency');
+        if (invoiceCurrency) {
+            const cur = invoiceCurrency.value;
+            invoiceCurrency.innerHTML = '<option value="">-- Tanlang --</option>';
+            list.forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c.code;
+                opt.textContent = `${c.code} — ${c.name}`;
+                invoiceCurrency.appendChild(opt);
+            });
+            invoiceCurrency.value = cur || (list[0] && list[0].code);
+        }
+
+        const baseCurrencySelect = document.getElementById('baseCurrency');
+        if (baseCurrencySelect) {
+            const cur = baseCurrencySelect.value;
+            baseCurrencySelect.innerHTML = '';
+            list.forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c.code;
+                opt.textContent = `${c.code} — ${c.name}`;
+                baseCurrencySelect.appendChild(opt);
+            });
+            baseCurrencySelect.value = cur || (list[0] && list[0].code);
+        }
+
+        const displayCurrencySelect = document.getElementById('displayCurrency');
+        if (displayCurrencySelect) {
+            const cur = displayCurrencySelect.value;
+            displayCurrencySelect.innerHTML = '';
+            list.forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c.code;
+                opt.textContent = `${c.code} — ${c.name}`;
+                displayCurrencySelect.appendChild(opt);
+            });
+            displayCurrencySelect.value = cur || (list[0] && list[0].code);
+        }
+
+        // Load admin lists (currencies & rates) if settings UI present
+        const settings = storage.getSettings();
+        const defaultCurrency = settings.defaultCurrency || (list[0] && list[0].code);
+
+        if (transCurrency && !transCurrency.value && defaultCurrency) {
+            transCurrency.value = defaultCurrency;
+        }
+        if (invoiceCurrency && !invoiceCurrency.value && defaultCurrency) {
+            invoiceCurrency.value = defaultCurrency;
+        }
+        if (productCurrency && !productCurrency.value && defaultCurrency) {
+            productCurrency.value = defaultCurrency;
+        }
+
+        const defaultCurrencySelect = document.getElementById('defaultCurrency');
+        if (defaultCurrencySelect) {
+            const cur = defaultCurrencySelect.value;
+            defaultCurrencySelect.innerHTML = '<option value="">-- Tanlang --</option>';
+            list.forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c.code;
+                opt.textContent = `${c.code} — ${c.name}`;
+                defaultCurrencySelect.appendChild(opt);
+            });
+            defaultCurrencySelect.value = cur || defaultCurrency;
+        }
+
+        // Load admin lists (currencies & rates) if settings UI present
+        this.loadAdminLists?.();
+    }
+
+    getCurrencySymbol(code) {
+        const currency = storage.getCurrencies().find(c => c.code === code);
+        return currency?.symbol || code;
+    }
+
+    formatCurrency(amount, code) {
+        const settings = storage.getSettings();
+        const showSymbol = settings.showCurrencySymbol !== false;
+        const currencyText = showSymbol ? this.getCurrencySymbol(code) : (code || "so'");
+        return `${this.formatNumber(amount)} ${currencyText}`;
+    }
+
+    async updateTransactionAmountPreview() {
+        const amountEl = document.getElementById('transAmount');
+        const currencyEl = document.getElementById('transCurrency');
+        const previewEl = document.getElementById('transAmountBasePreview');
+        if (!amountEl || !currencyEl || !previewEl) return;
+
+        const amount = parseFloat(amountEl.value) || 0;
+        const currency = currencyEl.value;
+        if (!currency || !api.useServer) {
+            previewEl.textContent = `${this.formatNumber(amount)} ${currency || ''}`;
+            return;
+        }
+
+        try {
+            const rateObj = await api.getExchangeRate(currency, (localStorage.getItem('BASE_CURRENCY') || 'UZS'));
+            const rate = rateObj.rate || 1;
+            const base = amount * rate;
+            previewEl.textContent = `${this.formatNumber(base)} so'm (rate ${rate})`;
+        } catch (e) {
+            previewEl.textContent = '—';
+        }
+    }
+
+    // Admin: load and render currencies & rates
+    async loadAdminLists() {
+        const list = api.useServer ? (await api.getCurrencies().catch(() => storage.getCurrencies())) : storage.getCurrencies();
+        const container = document.getElementById('adminCurrenciesList');
+        const rateFrom = document.getElementById('rateFrom');
+        const rateTo = document.getElementById('rateTo');
+        const ratesContainer = document.getElementById('adminRatesList');
+
+        if (rateFrom) {
+            rateFrom.innerHTML = '<option value="">-- From --</option>';
+            list.forEach(c => rateFrom.appendChild(Object.assign(document.createElement('option'), { value: c.code, textContent: `${c.code} — ${c.name}` })));
+        }
+        if (rateTo) {
+            rateTo.innerHTML = '<option value="">-- To --</option>';
+            list.forEach(c => rateTo.appendChild(Object.assign(document.createElement('option'), { value: c.code, textContent: `${c.code} — ${c.name}` })));
+        }
+
+        if (container) {
+            container.innerHTML = '';
+            list.forEach(c => {
+                const item = document.createElement('div');
+                item.className = 'list-item';
+                item.innerHTML = `<strong>${c.code}</strong> — ${c.name} <span style="margin-left:8px;color:#666">${c.symbol || ''}</span>`;
+                container.appendChild(item);
+            });
+        }
+
+        // Render exchange rates from local storage (server rates can be added via API)
+        if (ratesContainer) {
+            const rates = storage.getExchangeRates();
+            ratesContainer.innerHTML = '';
+            if (!rates || rates.length === 0) {
+                ratesContainer.innerHTML = '<div class="empty-state"><p>Hali kurs yozuvlari mavjud emas</p></div>';
+            } else {
+                const table = document.createElement('table');
+                table.className = 'transactions-table';
+                table.innerHTML = '<thead><tr><th>From</th><th>To</th><th>Rate</th><th>Date</th></tr></thead>';
+                const tbody = document.createElement('tbody');
+                rates.forEach(r => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `<td>${r.from_currency || r.from}</td><td>${r.to_currency || r.to}</td><td>${r.rate}</td><td>${r.date}</td>`;
+                    tbody.appendChild(tr);
+                });
+                table.appendChild(tbody);
+                ratesContainer.appendChild(table);
+            }
+        }
+    }
+
+    async handleAddCurrency(e) {
+        e.preventDefault();
+        const code = document.getElementById('currencyCode').value.trim().toUpperCase();
+        const name = document.getElementById('currencyName').value.trim();
+        const symbol = document.getElementById('currencySymbol').value.trim();
+        if (!code) return this.showMessage('Currency code required', 'error');
+        const payload = { code, name, symbol };
+        try {
+            if (api.useServer) {
+                await api.addCurrency(payload);
+            } else {
+                storage.addCurrency(payload);
+            }
+            this.showMessage('Currency saved', 'success');
+            this.loadCurrencies();
+            this.loadAdminLists();
+            document.getElementById('currencyForm').reset();
+        } catch (err) {
+            console.error(err);
+            this.showMessage('Could not save currency', 'error');
+        }
+    }
+
+    async handleAddExchangeRate(e) {
+        e.preventDefault();
+        const from = document.getElementById('rateFrom').value;
+        const to = document.getElementById('rateTo').value;
+        const rate = parseFloat(document.getElementById('rateValue').value);
+        const date = document.getElementById('rateDate').value || new Date().toISOString().split('T')[0];
+        if (!from || !to || !rate) return this.showMessage('From, to and rate are required', 'error');
+        const payloadLocal = { from_currency: from, to_currency: to, rate, date, source: 'admin' };
+        try {
+            if (api.useServer) {
+                await api.addExchangeRate(payloadLocal);
+            }
+            // Always add to local storage for offline visibility
+            storage.addExchangeRate({ from_currency: from, to_currency: to, rate, date, source: 'admin' });
+            this.showMessage('Exchange rate added', 'success');
+            this.loadAdminLists();
+            document.getElementById('exchangeRateForm').reset();
+        } catch (err) {
+            console.error(err);
+            this.showMessage('Could not add rate', 'error');
+        }
+    }
+
+    setupLoginPage() {"}]}
         const loginForm = document.getElementById('loginForm');
         if (loginForm) {
             loginForm.addEventListener('submit', (e) => this.handleLogin(e));
@@ -92,6 +345,13 @@ class AccountingApp {
         document.getElementById('supplierForm').addEventListener('submit', (e) => this.handleAddSupplier(e));
         document.getElementById('transactionForm').addEventListener('submit', (e) => this.handleAddTransaction(e));
         document.getElementById('settingsForm').addEventListener('submit', (e) => this.handleSaveSettings(e));
+        // Currency admin forms (if present)
+        if (document.getElementById('currencyForm')) {
+            document.getElementById('currencyForm').addEventListener('submit', (e) => this.handleAddCurrency(e));
+        }
+        if (document.getElementById('exchangeRateForm')) {
+            document.getElementById('exchangeRateForm').addEventListener('submit', (e) => this.handleAddExchangeRate(e));
+        }
 
         // Inventory forms
         document.getElementById('productForm').addEventListener('submit', (e) => this.handleAddProduct(e));
@@ -125,6 +385,10 @@ class AccountingApp {
 
         // Transaction filters
         document.getElementById('applyFilter').addEventListener('click', () => this.filterTransactions());
+        document.getElementById('filterSearch')?.addEventListener('input', () => this.filterTransactions());
+        document.getElementById('clearFilter')?.addEventListener('click', () => this.clearTransactionFilters());
+        document.getElementById('transAmount')?.addEventListener('input', () => this.updateTransactionAmountPreview());
+        document.getElementById('invoiceCurrency')?.addEventListener('change', () => this.updateInvoiceTotalPreview());
 
         // Production actions
         document.getElementById('productionForm').addEventListener('submit', (e) => this.handleAddProductionOrder(e));
@@ -443,7 +707,10 @@ class AccountingApp {
                 <td><span style="background: ${trans.type === 'income' ? '#10b981' : '#ef4444'}; color: white; padding: 0.25rem 0.75rem; border-radius: 0.25rem; font-size: 0.8rem;">
                     ${trans.type === 'income' ? 'Daromad' : 'Chiqim'}
                 </span></td>
-                <td><strong>${this.formatNumber(trans.amount)} so'm</strong></td>
+                <td>
+                    <strong>${this.formatNumber(trans.amount)}${trans.currency ? ' ' + trans.currency : ' so\'m'}</strong>
+                    ${trans.amount_base ? `<div style="font-size:0.85rem;color:#666;">(${this.formatNumber(trans.amount_base)} so'm bazada)</div>` : ''}
+                </td>
             `;
             tbody.appendChild(row);
         });
@@ -1069,33 +1336,69 @@ class AccountingApp {
     // TRANSACTIONS
     handleAddTransaction(e) {
         e.preventDefault();
+        const date = document.getElementById('transDate').value;
+        const clientId = document.getElementById('transClient').value;
+        const supplierId = document.getElementById('transSupplier').value;
+        const type = document.getElementById('transType').value;
+        const category = document.getElementById('transCategory').value;
+        const amount = parseFloat(document.getElementById('transAmount').value) || 0;
+        const description = document.getElementById('transDescription').value;
+        const currency = document.getElementById('transCurrency')?.value || '';
 
-        const trans = {
-            date: document.getElementById('transDate').value,
-            clientId: document.getElementById('transClient').value,
-            supplierId: document.getElementById('transSupplier').value,
-            type: document.getElementById('transType').value,
-            category: document.getElementById('transCategory').value,
-            amount: parseFloat(document.getElementById('transAmount').value),
-            description: document.getElementById('transDescription').value
-        };
-
-        if (!trans.clientId) {
+        if (!clientId) {
             alert('Iltimos, mijozni tanlang');
             return;
         }
 
-        storage.addTransaction(trans);
-        
-        // Form ni tozalash
-        document.getElementById('transactionForm').reset();
-        document.getElementById('transDate').value = new Date().toISOString().split('T')[0];
-        
-        // Tranzaksiyalarni yangilash
-        this.displayTransactions();
-        this.loadDashboard();
-        
-        this.showMessage('Tranzaksiya muvaffaqiyatli qo\'shildi', 'success');
+        const submitLocal = async () => {
+            // If server API is enabled, call it
+            if (api.useServer) {
+                try {
+                    // Try to fetch rate if currency set and not base
+                    let rate = null;
+                    if (currency) {
+                        try {
+                            const base = localStorage.getItem('BASE_CURRENCY') || 'UZS';
+                            const rateObj = await api.getExchangeRate(currency, base);
+                            rate = rateObj?.rate || 1;
+                        } catch (e) {
+                            rate = 1;
+                        }
+                    } else {
+                        rate = 1;
+                    }
+
+                    const payload = { date, clientId, supplierId, type, category, amount, description, currency: currency || undefined, rate };
+                    await api.addTransaction(payload);
+                } catch (err) {
+                    console.error('Server transaction error:', err);
+                    this.showMessage('Serverga yuborishda xato yuz berdi, offline saqlanmoqda', 'error');
+                    storage.addTransaction({ date, clientId, supplierId, type, category, amount, description, currency, rate: rate || 1, amount_base: (amount * (rate || 1)), createdAt: new Date().toISOString() });
+                }
+            } else {
+                // Offline/localstorage path: compute amount_base if possible
+                let rate = 1;
+                if (currency && api.useServer) {
+                    try {
+                        const base = localStorage.getItem('BASE_CURRENCY') || 'UZS';
+                        const rateObj = await api.getExchangeRate(currency, base);
+                        rate = rateObj?.rate || 1;
+                    } catch (e) {
+                        rate = 1;
+                    }
+                }
+                storage.addTransaction({ id: Date.now().toString(), date, clientId, supplierId, type, category, amount, description, currency, rate, amount_base: amount * rate, createdAt: new Date().toISOString() });
+            }
+
+            // Reset form and update UI
+            document.getElementById('transactionForm').reset();
+            document.getElementById('transDate').value = new Date().toISOString().split('T')[0];
+            this.displayTransactions();
+            this.loadDashboard();
+            this.showMessage('Tranzaksiya muvaffaqiyatli qo\'shildi', 'success');
+        };
+
+        submitLocal();
     }
 
     displayTransactions() {
@@ -1117,6 +1420,8 @@ class AccountingApp {
             
             const typeLabel = trans.type === 'income' ? 'Daromad' : 'Chiqim';
             const typeColor = trans.type === 'income' ? '#10b981' : '#ef4444';
+            const amountDisplay = trans.currency ? this.formatCurrency(trans.amount, trans.currency) : `${this.formatNumber(trans.amount)} so'm`;
+            const baseDisplay = trans.amount_base ? `<div style="font-size:0.8rem;color:#666;">(${this.formatNumber(trans.amount_base)} so'm bazada)</div>` : '';
             
             row.innerHTML = `
                 <td>${new Date(trans.date).toLocaleDateString('uz-UZ')}</td>
@@ -1124,7 +1429,7 @@ class AccountingApp {
                 <td>${supplier ? supplier.name : '-'}</td>
                 <td>${this.getCategoryLabel(trans.category)}</td>
                 <td><span style="background: ${typeColor}; color: white; padding: 0.25rem 0.75rem; border-radius: 0.25rem; font-size: 0.8rem;">${typeLabel}</span></td>
-                <td><strong>${this.formatNumber(trans.amount)} so'm</strong></td>
+                <td><strong>${amountDisplay}</strong>${baseDisplay}</td>
                 <td>
                     <button class="btn btn-danger" onclick="app.deleteTransaction('${trans.id}')" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;">O'chirish</button>
                 </td>
@@ -1137,6 +1442,7 @@ class AccountingApp {
         const fromDate = document.getElementById('filterFromDate').value;
         const toDate = document.getElementById('filterToDate').value;
         const type = document.getElementById('filterType').value;
+        const search = document.getElementById('filterSearch').value.trim().toLowerCase();
 
         let transactions = storage.getTransactions();
 
@@ -1148,6 +1454,18 @@ class AccountingApp {
         }
         if (type) {
             transactions = transactions.filter(t => t.type === type);
+        }
+        if (search) {
+            transactions = transactions.filter(t => {
+                const clientName = storage.getClientById(t.clientId)?.name || '';
+                const supplierName = storage.getSupplierById(t.supplierId)?.name || '';
+                const description = (t.description || '').toLowerCase();
+                const currency = (t.currency || '').toLowerCase();
+                return clientName.toLowerCase().includes(search)
+                    || supplierName.toLowerCase().includes(search)
+                    || description.includes(search)
+                    || currency.includes(search);
+            });
         }
 
         transactions = transactions.sort((a, b) => new Date(b.date) - new Date(a.date));
@@ -1167,6 +1485,8 @@ class AccountingApp {
             
             const typeLabel = trans.type === 'income' ? 'Daromad' : 'Chiqim';
             const typeColor = trans.type === 'income' ? '#10b981' : '#ef4444';
+            const amountDisplay = trans.currency ? this.formatCurrency(trans.amount, trans.currency) : `${this.formatNumber(trans.amount)} so'm`;
+            const baseDisplay = trans.amount_base ? `<div style="font-size:0.8rem;color:#666;">(${this.formatNumber(trans.amount_base)} so'm bazada)</div>` : '';
             
             row.innerHTML = `
                 <td>${new Date(trans.date).toLocaleDateString('uz-UZ')}</td>
@@ -1174,7 +1494,7 @@ class AccountingApp {
                 <td>${supplier ? supplier.name : '-'}</td>
                 <td>${this.getCategoryLabel(trans.category)}</td>
                 <td><span style="background: ${typeColor}; color: white; padding: 0.25rem 0.75rem; border-radius: 0.25rem; font-size: 0.8rem;">${typeLabel}</span></td>
-                <td><strong>${this.formatNumber(trans.amount)} so'm</strong></td>
+                <td><strong>${amountDisplay}</strong>${baseDisplay}</td>
                 <td>
                     <button class="btn btn-danger" onclick="app.deleteTransaction('${trans.id}')" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;">O'chirish</button>
                 </td>
@@ -1207,6 +1527,13 @@ class AccountingApp {
         const invoiceDate = document.getElementById('invoiceDate');
         if (invoiceDate) {
             invoiceDate.value = today;
+        }
+
+        const settings = storage.getSettings();
+        const defaultCurrency = settings.defaultCurrency || 'UZS';
+        const invoiceCurrency = document.getElementById('invoiceCurrency');
+        if (invoiceCurrency) {
+            invoiceCurrency.value = defaultCurrency;
         }
 
         const rowContainer = document.getElementById('invoiceLineRows');
@@ -1301,7 +1628,8 @@ class AccountingApp {
             const price = parseFloat(row.querySelector('.invoice-product-price').value) || 0;
             total += qty * price;
         });
-        document.getElementById('invoiceTotalPreview').textContent = this.formatNumber(total) + ' so\'m';
+        const invoiceCurrency = document.getElementById('invoiceCurrency')?.value;
+        document.getElementById('invoiceTotalPreview').textContent = invoiceCurrency ? this.formatCurrency(total, invoiceCurrency) : this.formatNumber(total) + ' so\'m';
     }
 
     handleAddInvoice(e) {
@@ -1343,6 +1671,8 @@ class AccountingApp {
             total += quantity * price;
         }
 
+        const invoiceCurrency = document.getElementById('invoiceCurrency')?.value || '';
+
         const invoice = {
             id: Date.now().toString(),
             number,
@@ -1351,19 +1681,56 @@ class AccountingApp {
             description,
             lineItems,
             total,
+            currency: invoiceCurrency || undefined,
             status: 'Yaratildi'
         };
 
         storage.addInvoice(invoice);
-        storage.addTransaction({
-            date,
-            clientId,
-            supplierId: '',
-            type: 'income',
-            category: 'sales',
-            amount: total,
-            description: `Invoice ${number}: ${description}`
-        });
+
+        // Prepare transaction payload including currency and base amount
+        (async () => {
+            let rate = 1;
+            const base = localStorage.getItem('BASE_CURRENCY') || 'UZS';
+            if (invoiceCurrency && invoiceCurrency !== base) {
+                if (api.useServer) {
+                    try {
+                        const rateObj = await api.getExchangeRate(invoiceCurrency, base);
+                        rate = rateObj?.rate || 1;
+                    } catch (e) {
+                        rate = 1;
+                    }
+                } else {
+                    // try local storage rates
+                    const rates = storage.getExchangeRates();
+                    const found = (rates || []).slice().reverse().find(r => (r.from_currency === invoiceCurrency || r.from === invoiceCurrency) && (r.to_currency === base || r.to === base));
+                    if (found) rate = found.rate;
+                }
+            }
+
+            const transPayload = {
+                date,
+                clientId,
+                supplierId: '',
+                type: 'income',
+                category: 'sales',
+                amount: total,
+                currency: invoiceCurrency || undefined,
+                rate,
+                amount_base: total * (rate || 1),
+                description: `Invoice ${number}: ${description}`
+            };
+
+            if (api.useServer) {
+                try {
+                    await api.addTransaction(transPayload);
+                } catch (err) {
+                    console.warn('Server transaction failed, saving local copy', err);
+                    storage.addTransaction(Object.assign({ id: Date.now().toString(), createdAt: new Date().toISOString() }, transPayload));
+                }
+            } else {
+                storage.addTransaction(Object.assign({ id: Date.now().toString(), createdAt: new Date().toISOString() }, transPayload));
+            }
+        })();
 
         const productsToUpdate = storage.getProducts();
         lineItems.forEach(item => {
@@ -1396,12 +1763,13 @@ class AccountingApp {
 
         invoices.forEach(invoice => {
             const client = storage.getClientById(invoice.clientId);
+            const totalDisplay = invoice.currency ? this.formatCurrency(invoice.total, invoice.currency) : `${this.formatNumber(invoice.total)} so'm`;
             const row = document.createElement('tr');
             row.innerHTML = `
                 <td>${invoice.number}</td>
                 <td>${new Date(invoice.date).toLocaleDateString('uz-UZ')}</td>
                 <td>${client ? client.name : 'Noma\'lum'}</td>
-                <td><strong>${this.formatNumber(invoice.total)} so'm</strong></td>
+                <td><strong>${totalDisplay}</strong></td>
                 <td>${invoice.status}</td>
                 <td>
                     <button class="btn btn-secondary" onclick="app.exportInvoice('${invoice.id}')" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;">Chop etish</button>
@@ -1425,6 +1793,7 @@ class AccountingApp {
             return `<tr><td>${product ? product.name : 'Noma\'lum'}</td><td>${item.quantity}</td><td>${this.formatNumber(item.price)} so'm</td><td>${this.formatNumber(item.quantity * item.price)} so'm</td></tr>`;
         }).join('');
 
+        const totalDisplay = invoice.currency ? this.formatCurrency(invoice.total, invoice.currency) : `${this.formatNumber(invoice.total)} so'm`;
         const htmlContent = `<!DOCTYPE html>
 <html lang="uz">
 <head>
@@ -1439,7 +1808,7 @@ class AccountingApp {
 <p><strong>Mijoz:</strong> ${client ? client.name : 'Noma\'lum'}</p>
 <p><strong>Izoh:</strong> ${invoice.description}</p>
 <table><thead><tr><th>Mahsulot</th><th>Soni</th><th>Birim narx</th><th>Jami</th></tr></thead><tbody>${linesHtml}</tbody></table>
-<p><strong>Jami summa:</strong> ${this.formatNumber(invoice.total)} so'm</p>
+<p><strong>Jami summa:</strong> ${totalDisplay}</p>
 </body>
 </html>`;
 
@@ -1465,6 +1834,14 @@ class AccountingApp {
         storage.deleteInvoice(invoiceId);
         this.displayInvoices();
         this.showMessage('Invoice o\'chirildi', 'success');
+    }
+
+    clearTransactionFilters() {
+        document.getElementById('filterFromDate').value = '';
+        document.getElementById('filterToDate').value = '';
+        document.getElementById('filterType').value = '';
+        document.getElementById('filterSearch').value = '';
+        this.filterTransactions();
     }
 
     // REPORTS
@@ -1725,13 +2102,27 @@ class AccountingApp {
     // SETTINGS
     loadSettings() {
         const settings = storage.getSettings();
-        
+        const currencies = storage.getCurrencies();
+        const defaultCurrencySelect = document.getElementById('defaultCurrency');
+
         document.getElementById('taxCulture').value = settings.taxCulture;
         document.getElementById('taxVAT').value = settings.taxVAT;
         document.getElementById('taxIncome').value = settings.taxIncome;
         document.getElementById('taxSSV').value = settings.taxSSV;
         document.getElementById('autoCalculateTax').checked = settings.autoCalculateTax;
         document.getElementById('notifications').checked = settings.notifications;
+        document.getElementById('showCurrencySymbol').checked = settings.showCurrencySymbol !== false;
+
+        if (defaultCurrencySelect) {
+            defaultCurrencySelect.innerHTML = '<option value="">-- Tanlang --</option>';
+            currencies.forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c.code;
+                opt.textContent = `${c.code} — ${c.name}`;
+                defaultCurrencySelect.appendChild(opt);
+            });
+            defaultCurrencySelect.value = settings.defaultCurrency || (currencies[0] && currencies[0].code) || '';
+        }
     }
 
     handleSaveSettings(e) {
@@ -1743,10 +2134,16 @@ class AccountingApp {
             taxIncome: parseFloat(document.getElementById('taxIncome').value),
             taxSSV: parseFloat(document.getElementById('taxSSV').value),
             autoCalculateTax: document.getElementById('autoCalculateTax').checked,
-            notifications: document.getElementById('notifications').checked
+            notifications: document.getElementById('notifications').checked,
+            defaultCurrency: document.getElementById('defaultCurrency')?.value || 'UZS',
+            showCurrencySymbol: document.getElementById('showCurrencySymbol')?.checked
         };
 
         storage.updateSettings(settings);
+        this.loadCurrencies();
+        if (this.currentTab === 'sales') {
+            this.updateInvoiceTotalPreview();
+        }
         this.showMessage('Sozlamalar muvaffaqiyatli saqlandi', 'success');
     }
 
@@ -1821,6 +2218,8 @@ class AccountingApp {
     handleAddProduct(e) {
         e.preventDefault();
 
+        const defaultCurrency = storage.getSettings().defaultCurrency || 'UZS';
+        const selectedCurrency = document.getElementById('productCurrency')?.value;
         const product = {
             id: Date.now().toString(),
             name: document.getElementById('productName').value,
@@ -1829,6 +2228,7 @@ class AccountingApp {
             minStock: parseInt(document.getElementById('minStock').value) || 10,
             purchasePrice: parseFloat(document.getElementById('purchasePrice').value) || 0,
             sellingPrice: parseFloat(document.getElementById('sellingPrice').value) || 0,
+            default_currency: selectedCurrency || defaultCurrency,
             stock: 0
         };
 

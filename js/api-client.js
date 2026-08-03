@@ -91,6 +91,26 @@ class APIClient {
         return await this.request('POST', '/transactions', transaction);
     }
 
+    // ==================== CURRENCIES & RATES ====================
+
+    async getCurrencies() {
+        return await this.request('GET', '/currencies');
+    }
+
+    async addCurrency(currency) {
+        return await this.request('POST', '/currencies', currency);
+    }
+
+    async getExchangeRate(from, to, date = null) {
+        let endpoint = `/exchange-rates?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+        if (date) endpoint += `&date=${encodeURIComponent(date)}`;
+        return await this.request('GET', endpoint);
+    }
+
+    async addExchangeRate(rate) {
+        return await this.request('POST', '/exchange-rates', rate);
+    }
+
     async deleteTransaction(transactionId) {
         return await this.request('DELETE', `/transactions/${transactionId}`);
     }
