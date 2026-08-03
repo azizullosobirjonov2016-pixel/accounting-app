@@ -7,7 +7,7 @@ class AccountingApp {
 
     init() {
         // Skip auth if storage is not available (for development/debugging)
-        if (typeof window.storage === 'undefined') {
+        if (typeof storage === 'undefined') {
             console.warn('Storage not available, skipping auth');
             document.getElementById('loginModal').style.display = 'none';
             this.showMainApp();
@@ -15,6 +15,7 @@ class AccountingApp {
             this.setupLoginPage();
             return;
         } else {
+            document.getElementById('loginModal').classList.remove('active');
             this.showMainApp();
         }
         this.setupEventListeners();
@@ -22,7 +23,7 @@ class AccountingApp {
         this.loadDashboard();
         this.updateClientDropdowns();
         this.updateSupplierDropdowns();
-        if (typeof window.storage !== 'undefined') {
+        if (typeof storage !== 'undefined') {
             this.updateUserDisplay();
         }
     }
@@ -436,6 +437,27 @@ class AccountingApp {
             e.preventDefault();
             document.getElementById('employeeForm').requestSubmit();
         });
+
+        // Excel import/export
+        this.setupExcelToolbar('products', this.exportProductsToExcel, this.importProductsFromExcel);
+        this.setupExcelToolbar('clients', this.exportClientsToExcel, this.importClientsFromExcel);
+        this.setupExcelToolbar('suppliers', this.exportSuppliersToExcel, this.importSuppliersFromExcel);
+        this.setupExcelToolbar('transactions', this.exportTransactionsToExcel, this.importTransactionsFromExcel);
+        this.setupExcelToolbar('employees', this.exportEmployeesToExcel, this.importEmployeesFromExcel);
+        document.getElementById('invoicesExportBtn')?.addEventListener('click', () => this.exportInvoicesToExcel());
+    }
+
+    // entityPrefix mos keladi HTML id'lariga: <entityPrefix>TemplateBtn/ExportBtn/ImportBtn/ImportInput
+    setupExcelToolbar(entityPrefix, exportFn, importFn) {
+        const templateBtn = document.getElementById(`${entityPrefix}TemplateBtn`);
+        const exportBtn = document.getElementById(`${entityPrefix}ExportBtn`);
+        const importBtn = document.getElementById(`${entityPrefix}ImportBtn`);
+        const importInput = document.getElementById(`${entityPrefix}ImportInput`);
+
+        templateBtn?.addEventListener('click', () => excelManager.downloadTemplate(entityPrefix));
+        exportBtn?.addEventListener('click', () => exportFn.call(this));
+        importBtn?.addEventListener('click', () => importInput?.click());
+        importInput?.addEventListener('change', (e) => importFn.call(this, e));
     }
 
     switchTab(tabName) {
@@ -561,8 +583,14 @@ class AccountingApp {
         if (!employeeId) { this.showMessage('Iltimos, xodimni tanlang', 'error'); return; }
         const emp = storage.getEmployeeById(employeeId);
         if (!emp) { this.showMessage('Xodim topilmadi', 'error'); return; }
+        const settings = storage.getSettings();
         const gross = (parseFloat(emp.salary) || 0) + bonus;
-        const tax = gross * ((parseFloat(emp.taxRate) || 0) / 100);
+        // JShDS (jismoniy shaxslardan daromad solig'i) - xodim maoshidan ushlanadi
+        const ndflRate = parseFloat(emp.taxRate) || 0;
+        const tax = gross * (ndflRate / 100);
+        // ISHV (ijtimoiy soliq) - ish beruvchi tomonidan qo'shimcha to'lanadi, xodim maoshidan ushlanmaydi
+        const socialTaxRate = parseFloat(settings.taxSSV) || 0;
+        const socialTax = gross * (socialTaxRate / 100);
         const net = Math.max(0, gross - tax - deductions);
 
         const record = {
@@ -571,25 +599,40 @@ class AccountingApp {
             period,
             gross,
             tax,
+            socialTax,
             deductions,
             net,
             date: new Date().toISOString()
         };
         storage.addPayrollRecord(record);
-        
-        // Create automatic expense transaction for salary payment
+
+        // Create automatic expense transaction for the net salary payment
         const transaction = {
             id: Date.now().toString(),
             date: new Date().toISOString(),
             type: 'expense',
-            category: 'salary',
-            description: `Ish haqi: ${emp.name} (${period})`,
+            category: 'salaries',
+            description: `Ish haqi (netto): ${emp.name} (${period})`,
             amount: net,
             payrollRecordId: record.id,
             status: 'completed'
         };
         storage.addTransaction(transaction);
-        
+
+        // Employer's social tax (ISHV) is a separate budget payment, not part of employee's net pay
+        if (socialTax > 0) {
+            const socialTaxTransaction = {
+                date: new Date().toISOString(),
+                type: 'expense',
+                category: 'social_tax',
+                description: `Ijtimoiy soliq - ISHV (${socialTaxRate}%): ${emp.name} (${period})`,
+                amount: socialTax,
+                payrollRecordId: record.id,
+                status: 'completed'
+            };
+            storage.addTransaction(socialTaxTransaction);
+        }
+
         document.getElementById('payrollForm').reset();
         this.displayPayrollRecords();
         this.showMessage('Ish haqi yozuvi va xarajat tranzaksiyasi saqlandi', 'success');
@@ -611,7 +654,7 @@ class AccountingApp {
                 <td>${emp ? emp.name : 'Noma\'lum'}</td>
                 <td>${r.period}</td>
                 <td>${this.formatNumber(r.gross)} so'm</td>
-                <td>${this.formatNumber(r.deductions + r.tax)} so'm</td>
+                <td>${this.formatNumber((r.deductions || 0) + (r.tax || 0))} so'm</td>
                 <td><strong>${this.formatNumber(r.net)} so'm</strong></td>
                 <td><button class="btn btn-danger" onclick="app.deletePayrollRecord('${r.id}')">O'chirish</button></td>
             `;
@@ -627,16 +670,19 @@ class AccountingApp {
         
         const totalGross = records.reduce((s, r) => s + (r.gross || 0), 0);
         const totalTax = records.reduce((s, r) => s + (r.tax || 0), 0);
+        const totalSocialTax = records.reduce((s, r) => s + (r.socialTax || 0), 0);
         const totalDeductions = records.reduce((s, r) => s + (r.deductions || 0), 0);
         const totalNet = records.reduce((s, r) => s + (r.net || 0), 0);
-        
+
         let summaryHTML = `
             <div class="summary-box">
-                <h4>Итоги ишчи хақи:</h4>
-                <p>Ҳамма: ${this.formatNumber(totalGross)} so'm</p>
-                <p>Солиқ: ${this.formatNumber(totalTax)} so'm</p>
-                <p>Чегириш: ${this.formatNumber(totalDeductions)} so'm</p>
-                <p><strong>Тўлаш: ${this.formatNumber(totalNet)} so'm</strong></p>
+                <h4>Ish haqi bo'yicha yakun:</h4>
+                <p>Jami (bruto): ${this.formatNumber(totalGross)} so'm</p>
+                <p>JShDS (xodimdan ushlangan): ${this.formatNumber(totalTax)} so'm</p>
+                <p>Ijtimoiy soliq - ISHV (ish beruvchi to'laydi): ${this.formatNumber(totalSocialTax)} so'm</p>
+                <p>Boshqa ajratmalar: ${this.formatNumber(totalDeductions)} so'm</p>
+                <p><strong>Xodimlarga to'lanadigan (netto): ${this.formatNumber(totalNet)} so'm</strong></p>
+                <p><strong>Ish beruvchi uchun jami xarajat: ${this.formatNumber(totalNet + totalSocialTax)} so'm</strong></p>
             </div>
         `;
         
@@ -1048,6 +1094,47 @@ class AccountingApp {
 
         document.getElementById('productionCostPreview').textContent = this.formatNumber(totalCost) + ' so\'m';
         document.getElementById('productionUnitCostPreview').textContent = this.formatNumber(unitCost) + ' so\'m';
+    }
+
+    addProductionMaterialRow(item = {}) {
+        const container = document.getElementById('materialUsageRows');
+        const row = document.createElement('div');
+        row.className = 'material-row';
+        row.innerHTML = `
+            <div class="form-grid material-row-grid">
+                <div>
+                    <label>Material:</label>
+                    <select class="material-product-select" required>
+                        <option value="">-- Tanlang --</option>
+                    </select>
+                </div>
+                <div>
+                    <label>Miqdor:</label>
+                    <input type="number" class="material-quantity" min="1" value="${item.quantity || 1}" required>
+                </div>
+                <div class="material-row-actions">
+                    <button type="button" class="btn btn-danger remove-material-row">O'chirish</button>
+                </div>
+            </div>
+        `;
+
+        container.appendChild(row);
+        this.updateProductionDropdowns();
+
+        const productSelect = row.querySelector('.material-product-select');
+        const quantityInput = row.querySelector('.material-quantity');
+        if (productSelect && item.productId) {
+            productSelect.value = item.productId;
+        }
+
+        const updatePreview = () => this.updateProductionCostPreview();
+        productSelect.addEventListener('change', updatePreview);
+        quantityInput.addEventListener('input', updatePreview);
+
+        row.querySelector('.remove-material-row').addEventListener('click', () => {
+            row.remove();
+            this.updateProductionCostPreview();
+        });
     }
 
     addRecipeMaterialRow(item = {}) {
@@ -1620,16 +1707,28 @@ class AccountingApp {
         });
     }
 
+    // Soddalashtirilgan rejimdagi korxonalar QQS to'lovchisi emas
+    getInvoiceVatRate() {
+        const settings = storage.getSettings();
+        return settings.taxRegime === 'soddalashtirilgan' ? 0 : (parseFloat(settings.taxVAT) || 0);
+    }
+
     updateInvoiceTotalPreview() {
         const rows = Array.from(document.querySelectorAll('#invoiceLineRows .material-row'));
-        let total = 0;
+        let subtotal = 0;
         rows.forEach(row => {
             const qty = parseFloat(row.querySelector('.invoice-product-quantity').value) || 0;
             const price = parseFloat(row.querySelector('.invoice-product-price').value) || 0;
-            total += qty * price;
+            subtotal += qty * price;
         });
+        const vatRate = this.getInvoiceVatRate();
+        const vatAmount = subtotal * (vatRate / 100);
+        const total = subtotal + vatAmount;
         const invoiceCurrency = document.getElementById('invoiceCurrency')?.value;
-        document.getElementById('invoiceTotalPreview').textContent = invoiceCurrency ? this.formatCurrency(total, invoiceCurrency) : this.formatNumber(total) + ' so\'m';
+        const fmt = (v) => invoiceCurrency ? this.formatCurrency(v, invoiceCurrency) : this.formatNumber(v) + ' so\'m';
+        document.getElementById('invoiceTotalPreview').textContent = vatRate > 0
+            ? `${fmt(subtotal)} + QQS ${vatRate}% (${fmt(vatAmount)}) = ${fmt(total)}`
+            : fmt(total);
     }
 
     handleAddInvoice(e) {
@@ -1647,7 +1746,7 @@ class AccountingApp {
         }
 
         const lineItems = [];
-        let total = 0;
+        let subtotal = 0;
         const products = storage.getProducts();
 
         for (const row of rows) {
@@ -1668,10 +1767,13 @@ class AccountingApp {
                 return;
             }
             lineItems.push({ productId, quantity, price });
-            total += quantity * price;
+            subtotal += quantity * price;
         }
 
         const invoiceCurrency = document.getElementById('invoiceCurrency')?.value || '';
+        const vatRate = this.getInvoiceVatRate();
+        const vatAmount = subtotal * (vatRate / 100);
+        const total = subtotal + vatAmount;
 
         const invoice = {
             id: Date.now().toString(),
@@ -1680,6 +1782,9 @@ class AccountingApp {
             clientId,
             description,
             lineItems,
+            subtotal,
+            vatRate,
+            vatAmount,
             total,
             currency: invoiceCurrency || undefined,
             status: 'Yaratildi'
@@ -1793,7 +1898,13 @@ class AccountingApp {
             return `<tr><td>${product ? product.name : 'Noma\'lum'}</td><td>${item.quantity}</td><td>${this.formatNumber(item.price)} so'm</td><td>${this.formatNumber(item.quantity * item.price)} so'm</td></tr>`;
         }).join('');
 
-        const totalDisplay = invoice.currency ? this.formatCurrency(invoice.total, invoice.currency) : `${this.formatNumber(invoice.total)} so'm`;
+        const fmt = (v) => invoice.currency ? this.formatCurrency(v, invoice.currency) : `${this.formatNumber(v)} so'm`;
+        const hasVat = invoice.vatRate > 0;
+        const subtotalDisplay = fmt(invoice.subtotal !== undefined ? invoice.subtotal : invoice.total);
+        const totalDisplay = fmt(invoice.total);
+        const vatRows = hasVat ? `
+<p><strong>Summa (QQSsiz):</strong> ${subtotalDisplay}</p>
+<p><strong>QQS (${invoice.vatRate}%):</strong> ${fmt(invoice.vatAmount || 0)}</p>` : '';
         const htmlContent = `<!DOCTYPE html>
 <html lang="uz">
 <head>
@@ -1808,7 +1919,8 @@ class AccountingApp {
 <p><strong>Mijoz:</strong> ${client ? client.name : 'Noma\'lum'}</p>
 <p><strong>Izoh:</strong> ${invoice.description}</p>
 <table><thead><tr><th>Mahsulot</th><th>Soni</th><th>Birim narx</th><th>Jami</th></tr></thead><tbody>${linesHtml}</tbody></table>
-<p><strong>Jami summa:</strong> ${totalDisplay}</p>
+${vatRows}
+<p><strong>Jami summa (to'lanadigan):</strong> ${totalDisplay}</p>
 </body>
 </html>`;
 
@@ -1889,8 +2001,14 @@ class AccountingApp {
         const totalIncome = incomeTransactions.reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
         const totalExpense = expenseTransactions.reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
         const grossProfit = totalIncome - totalExpense;
-        const taxIncome = totalIncome * (settings.taxIncome / 100);
-        const netProfit = grossProfit - taxIncome;
+
+        const isSimplified = settings.taxRegime === 'soddalashtirilgan';
+        // Foyda solig'i faqat foyda bo'lganda hisoblanadi (zararga soliq solinmaydi);
+        // soddalashtirilgan rejimda esa Aylanma solig'i jami daromaddan olinadi (QQS/Foyda solig'i o'rniga)
+        const turnoverTax = isSimplified ? totalIncome * ((settings.taxTurnover || 0) / 100) : 0;
+        const taxIncome = !isSimplified && grossProfit > 0 ? grossProfit * ((settings.taxIncome || 0) / 100) : 0;
+        const totalTax = isSimplified ? turnoverTax : taxIncome;
+        const netProfit = grossProfit - totalTax;
 
         // Income kategoriya bo'yicha
         const incomeByCategory = {};
@@ -1929,8 +2047,8 @@ class AccountingApp {
                     <td><strong>${this.formatNumber(grossProfit)} so'm</strong></td>
                 </tr>
                 <tr style="background: #fff3cd;">
-                    <td><strong>Daromad Soliq (${settings.taxIncome}%):</strong></td>
-                    <td><strong style="color: #ff6b6b;">${this.formatNumber(taxIncome)} so'm</strong></td>
+                    <td><strong>${isSimplified ? `Aylanma solig'i (${settings.taxTurnover}%)` : `Foyda solig'i (${settings.taxIncome}%)`}:</strong></td>
+                    <td><strong style="color: #ff6b6b;">${this.formatNumber(totalTax)} so'm</strong></td>
                 </tr>
                 <tr style="background: #d1ecf1;">
                     <td><strong>Toza Foyda:</strong></td>
@@ -2039,10 +2157,14 @@ class AccountingApp {
 
             <h4>SOLIQ VA IJRO HUJJATLARI</h4>
             <div class="report-summary">
-                <p><strong>Daromad soliq stavkasi:</strong> ${settings.taxIncome}%</p>
-                <p><strong>Qo'shilgan qiymat soliq:</strong> ${settings.taxVAT}%</p>
-                <p><strong>Madaniyat tori:</strong> ${settings.taxCulture}%</p>
-                <p><strong>Ijro havfsizlik vadaslari:</strong> Har 15-kunida deklaratsiya topshirish kerak</p>
+                <p><strong>Soliq rejimi:</strong> ${isSimplified ? "Soddalashtirilgan (Aylanma solig'i)" : 'Umumbelgilangan (QQS + Foyda solig\'i)'}</p>
+                ${isSimplified
+                    ? `<p><strong>Aylanma solig'i stavkasi:</strong> ${settings.taxTurnover}%</p>`
+                    : `<p><strong>Foyda solig'i stavkasi:</strong> ${settings.taxIncome}%</p>
+                <p><strong>QQS stavkasi:</strong> ${settings.taxVAT}%</p>`}
+                <p><strong>Ijtimoiy soliq (ISHV) stavkasi:</strong> ${settings.taxSSV}%</p>
+                <p><strong>JShDS (xodimlar uchun) stavkasi:</strong> ${settings.taxNDFL}%</p>
+                <p><strong>Deklaratsiya topshirish:</strong> QQS — har oy, Foyda solig'i — har chorak, JShDS/ISHV — har oy (soliq.uz orqali)</p>
             </div>
         `;
 
@@ -2105,10 +2227,12 @@ class AccountingApp {
         const currencies = storage.getCurrencies();
         const defaultCurrencySelect = document.getElementById('defaultCurrency');
 
-        document.getElementById('taxCulture').value = settings.taxCulture;
+        document.getElementById('taxRegime').value = settings.taxRegime || 'umumiy';
         document.getElementById('taxVAT').value = settings.taxVAT;
         document.getElementById('taxIncome').value = settings.taxIncome;
+        document.getElementById('taxTurnover').value = settings.taxTurnover;
         document.getElementById('taxSSV').value = settings.taxSSV;
+        document.getElementById('taxNDFL').value = settings.taxNDFL;
         document.getElementById('autoCalculateTax').checked = settings.autoCalculateTax;
         document.getElementById('notifications').checked = settings.notifications;
         document.getElementById('showCurrencySymbol').checked = settings.showCurrencySymbol !== false;
@@ -2129,10 +2253,12 @@ class AccountingApp {
         e.preventDefault();
 
         const settings = {
-            taxCulture: parseFloat(document.getElementById('taxCulture').value),
+            taxRegime: document.getElementById('taxRegime').value,
             taxVAT: parseFloat(document.getElementById('taxVAT').value),
             taxIncome: parseFloat(document.getElementById('taxIncome').value),
+            taxTurnover: parseFloat(document.getElementById('taxTurnover').value),
             taxSSV: parseFloat(document.getElementById('taxSSV').value),
+            taxNDFL: parseFloat(document.getElementById('taxNDFL').value),
             autoCalculateTax: document.getElementById('autoCalculateTax').checked,
             notifications: document.getElementById('notifications').checked,
             defaultCurrency: document.getElementById('defaultCurrency')?.value || 'UZS',
@@ -2188,6 +2314,267 @@ class AccountingApp {
         storage.clear();
         this.showMessage('Barcha ma\'lumotlar o\'chirildi', 'success');
         setTimeout(() => window.location.reload(), 1500);
+    }
+
+    // ==================== EXCEL IMPORT/EXPORT ====================
+
+    reportImportResult(label, imported, errors, extraMsg) {
+        const base = extraMsg || `${label}: ${imported} ta qator import qilindi`;
+        if (errors && errors.length) {
+            const preview = errors.slice(0, 5).join('\n');
+            const more = errors.length > 5 ? `\n... yana ${errors.length - 5} ta xato` : '';
+            this.showMessage(`${base}. ${errors.length} ta qatorda xato bor.`, imported > 0 ? 'success' : 'error');
+            alert(`Import xatolari:\n${preview}${more}`);
+        } else {
+            this.showMessage(base, 'success');
+        }
+    }
+
+    resolveProductCategory(value) {
+        const keys = ['electronics', 'clothing', 'food', 'furniture', 'materials', 'other'];
+        if (!value) return 'other';
+        const v = String(value).toLowerCase().trim();
+        if (keys.includes(v)) return v;
+        const found = keys.find(k => v.includes(k) || this.getCategoryLabel(k).toLowerCase().includes(v));
+        return found || 'other';
+    }
+
+    resolveSupplierProductType(value) {
+        const keys = ['materials', 'equipment', 'services', 'transport', 'other'];
+        if (!value) return '';
+        const v = String(value).toLowerCase().trim();
+        if (keys.includes(v)) return v;
+        const found = keys.find(k => v.includes(k) || this.getProductTypeLabel(k).toLowerCase().includes(v));
+        return found || '';
+    }
+
+    // Products
+    exportProductsToExcel() {
+        const rows = storage.getProducts().map(p => ({
+            name: p.name, category: this.getCategoryLabel(p.category), unit: p.unit,
+            minStock: p.minStock, purchasePrice: p.purchasePrice, sellingPrice: p.sellingPrice,
+            default_currency: p.default_currency, stock: p.stock
+        }));
+        excelManager.exportRows('products', rows);
+        this.showMessage(`${rows.length} ta mahsulot Excel'ga eksport qilindi`, 'success');
+    }
+
+    async importProductsFromExcel(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        try {
+            const { rows, errors } = await excelManager.readFile('products', file);
+            const defaultCurrency = storage.getSettings().defaultCurrency || 'UZS';
+            let imported = 0;
+            rows.forEach((r, i) => {
+                if (!r.name) return;
+                storage.addProduct({
+                    id: Date.now().toString() + '_p' + i,
+                    name: r.name,
+                    category: this.resolveProductCategory(r.category),
+                    unit: r.unit || 'dona',
+                    minStock: r.minStock || 10,
+                    purchasePrice: r.purchasePrice || 0,
+                    sellingPrice: r.sellingPrice || 0,
+                    default_currency: r.default_currency || defaultCurrency,
+                    stock: r.stock || 0
+                });
+                imported++;
+            });
+            this.loadInventory();
+            this.updateProductDropdowns();
+            this.reportImportResult('Mahsulotlar', imported, errors);
+        } catch (err) {
+            this.showMessage('Import xatosi: ' + err.message, 'error');
+        }
+        e.target.value = '';
+    }
+
+    // Clients
+    exportClientsToExcel() {
+        const rows = storage.getClients().map(c => ({ name: c.name, stir: c.stir, phone: c.phone, address: c.address }));
+        excelManager.exportRows('clients', rows);
+        this.showMessage(`${rows.length} ta mijoz Excel'ga eksport qilindi`, 'success');
+    }
+
+    async importClientsFromExcel(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        try {
+            const { rows, errors } = await excelManager.readFile('clients', file);
+            let imported = 0;
+            rows.forEach(r => {
+                if (!r.name) return;
+                storage.addClient({ name: r.name, stir: r.stir || '', phone: r.phone || '', address: r.address || '' });
+                imported++;
+            });
+            this.displayClients();
+            this.updateClientDropdowns();
+            this.updateSupplierDropdowns();
+            this.reportImportResult('Mijozlar', imported, errors);
+        } catch (err) {
+            this.showMessage('Import xatosi: ' + err.message, 'error');
+        }
+        e.target.value = '';
+    }
+
+    // Suppliers
+    exportSuppliersToExcel() {
+        const rows = storage.getSuppliers().map(s => ({
+            name: s.name, stir: s.stir, phone: s.phone, address: s.address,
+            productType: this.getProductTypeLabel(s.productType)
+        }));
+        excelManager.exportRows('suppliers', rows);
+        this.showMessage(`${rows.length} ta yetkazib beruvchi Excel'ga eksport qilindi`, 'success');
+    }
+
+    async importSuppliersFromExcel(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        try {
+            const { rows, errors } = await excelManager.readFile('suppliers', file);
+            let imported = 0;
+            rows.forEach(r => {
+                if (!r.name) return;
+                storage.addSupplier({
+                    name: r.name, stir: r.stir || '', phone: r.phone || '', address: r.address || '',
+                    productType: this.resolveSupplierProductType(r.productType)
+                });
+                imported++;
+            });
+            this.displaySuppliers();
+            this.updateSupplierDropdowns();
+            this.reportImportResult('Yetkazib beruvchilar', imported, errors);
+        } catch (err) {
+            this.showMessage('Import xatosi: ' + err.message, 'error');
+        }
+        e.target.value = '';
+    }
+
+    // Transactions
+    exportTransactionsToExcel() {
+        const clients = storage.getClients();
+        const suppliers = storage.getSuppliers();
+        const rows = storage.getTransactions().map(t => ({
+            date: t.date ? String(t.date).split('T')[0] : '',
+            type: t.type,
+            category: t.category,
+            clientName: (clients.find(c => c.id === t.clientId) || {}).name || '',
+            supplierName: (suppliers.find(s => s.id === t.supplierId) || {}).name || '',
+            amount: t.amount,
+            currency: t.currency || '',
+            description: t.description || ''
+        }));
+        excelManager.exportRows('transactions', rows);
+        this.showMessage(`${rows.length} ta tranzaksiya Excel'ga eksport qilindi`, 'success');
+    }
+
+    async importTransactionsFromExcel(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        try {
+            const { rows, errors } = await excelManager.readFile('transactions', file);
+            let imported = 0, createdClients = 0, createdSuppliers = 0;
+
+            rows.forEach(r => {
+                if (!r.date || !r.amount) return;
+                const t = String(r.type || '').toLowerCase();
+                let type = null;
+                if (t.includes('income') || t.includes('daromad') || t.includes('xarid')) type = 'income';
+                else if (t.includes('expense') || t.includes('chiqim') || t.includes('xaraj')) type = 'expense';
+                if (!type) {
+                    errors.push(`${r.__row}-qator: "Turi" ustuni income yoki expense bo'lishi kerak`);
+                    return;
+                }
+
+                let clientId = '';
+                if (r.clientName) {
+                    let client = storage.getClients().find(c => (c.name || '').toLowerCase() === String(r.clientName).toLowerCase());
+                    if (!client) { client = storage.addClient({ name: r.clientName }); createdClients++; }
+                    clientId = client.id;
+                }
+                let supplierId = '';
+                if (r.supplierName) {
+                    let supplier = storage.getSuppliers().find(s => (s.name || '').toLowerCase() === String(r.supplierName).toLowerCase());
+                    if (!supplier) { supplier = storage.addSupplier({ name: r.supplierName }); createdSuppliers++; }
+                    supplierId = supplier.id;
+                }
+
+                storage.addTransaction({
+                    date: r.date, clientId, supplierId, type,
+                    category: r.category || 'other',
+                    amount: r.amount, currency: r.currency || '',
+                    description: r.description || ''
+                });
+                imported++;
+            });
+
+            this.displayTransactions();
+            this.loadDashboard();
+            this.updateClientDropdowns();
+            this.updateSupplierDropdowns();
+
+            let msg = `Tranzaksiyalar: ${imported} ta qator import qilindi`;
+            if (createdClients) msg += `, ${createdClients} ta yangi mijoz avtomatik yaratildi`;
+            if (createdSuppliers) msg += `, ${createdSuppliers} ta yangi yetkazib beruvchi avtomatik yaratildi`;
+            this.reportImportResult('Tranzaksiyalar', imported, errors, msg);
+        } catch (err) {
+            this.showMessage('Import xatosi: ' + err.message, 'error');
+        }
+        e.target.value = '';
+    }
+
+    // Employees
+    exportEmployeesToExcel() {
+        const rows = storage.getEmployees().map(emp => ({
+            name: emp.name, position: emp.position, salary: emp.salary, taxRate: emp.taxRate
+        }));
+        excelManager.exportRows('employees', rows);
+        this.showMessage(`${rows.length} ta xodim Excel'ga eksport qilindi`, 'success');
+    }
+
+    async importEmployeesFromExcel(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        try {
+            const { rows, errors } = await excelManager.readFile('employees', file);
+            const defaultNdfl = storage.getSettings().taxNDFL || 12;
+            let imported = 0;
+            rows.forEach((r, i) => {
+                if (!r.name) return;
+                storage.addEmployee({
+                    id: Date.now().toString() + '_e' + i,
+                    name: r.name, position: r.position || '',
+                    salary: r.salary || 0,
+                    taxRate: r.taxRate || defaultNdfl,
+                    createdAt: new Date().toISOString()
+                });
+                imported++;
+            });
+            this.displayEmployees();
+            this.updateEmployeeDropdowns();
+            this.reportImportResult('Xodimlar', imported, errors);
+        } catch (err) {
+            this.showMessage('Import xatosi: ' + err.message, 'error');
+        }
+        e.target.value = '';
+    }
+
+    // Invoices (export only - ko'p qatorli hujjat bo'lgani uchun import qo'llab-quvvatlanmaydi)
+    exportInvoicesToExcel() {
+        const clients = storage.getClients();
+        const rows = storage.getInvoices().map(inv => ({
+            number: inv.number,
+            date: inv.date ? String(inv.date).split('T')[0] : '',
+            clientName: (clients.find(c => c.id === inv.clientId) || {}).name || '',
+            subtotal: inv.subtotal !== undefined ? inv.subtotal : inv.total,
+            vatAmount: inv.vatAmount || 0,
+            total: inv.total,
+            status: inv.status,
+            description: inv.description || ''
+        }));
+        excelManager.exportRows('invoices', rows);
+        this.showMessage(`${rows.length} ta savdo hujjati Excel'ga eksport qilindi`, 'success');
     }
 
     // INVENTORY METHODS
@@ -2247,15 +2634,15 @@ class AccountingApp {
         if (type === 'in') {
             title.textContent = 'Ombor Kirimi';
             submitBtn.textContent = 'Kirim qilish';
-            quantityLabel.textContent = 'Miqdor:';
+            if (quantityLabel) quantityLabel.textContent = 'Miqdor:';
         } else if (type === 'out') {
             title.textContent = 'Ombor Chiqimi';
             submitBtn.textContent = 'Chiqim qilish';
-            quantityLabel.textContent = 'Miqdor:';
+            if (quantityLabel) quantityLabel.textContent = 'Miqdor:';
         } else {
             title.textContent = 'Zahira Tuzatish';
             submitBtn.textContent = 'Tuzatish';
-            quantityLabel.textContent = 'Yangi zahira miqdori:';
+            if (quantityLabel) quantityLabel.textContent = 'Yangi zahira miqdori:';
         }
 
         this.currentMovementType = type;
@@ -2450,6 +2837,7 @@ class AccountingApp {
             'services': '🔧 Xizmatlar',
             'materials': '📋 Materiallar xaridi',
             'salaries': '👥 Ishchilarga ish haqi',
+            'social_tax': '🏛️ Ijtimoiy soliq (ISHV)',
             'rent': '🏢 Ijaraga to\'lov',
             'utilities': '💡 Kommunal xarajlar',
             'transport': '🚚 Transport xarajlari',

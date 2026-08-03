@@ -5,6 +5,12 @@ class StorageManager {
         this.initializeDefaults();
     }
 
+    // Bir millisekundda bir nechta yozuv yaratilganda ID to'qnashuvining oldini oladi
+    // (masalan: ish haqi yozuvida ikkita tranzaksiya yoki Excel'dan ommaviy import)
+    generateId() {
+        return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    }
+
     initializeDefaults() {
         // Agar ma'lumotlar mavjud bo'lmasa, boshlang'ich qiymatlar o'rnatish
         if (!this.get('clients')) {
@@ -60,14 +66,18 @@ class StorageManager {
             this.set('exchangeRates', []);
         }
 
-        this.set('settings', {
-            taxCulture: 1,
-            taxVAT: 12,
-            taxIncome: 15,
-            taxSSV: 5,
-            autoCalculateTax: true,
-            notifications: true
-        });
+        if (!this.get('settings')) {
+            this.set('settings', {
+                taxRegime: 'umumiy',
+                taxVAT: 12,
+                taxIncome: 15,
+                taxTurnover: 4,
+                taxSSV: 12,
+                taxNDFL: 12,
+                autoCalculateTax: true,
+                notifications: true
+            });
+        }
     }
 
     set(key, value) {
@@ -119,7 +129,7 @@ class StorageManager {
     // Clients ma'lumotlari
     addClient(client) {
         const clients = this.get('clients', []);
-        client.id = Date.now().toString();
+        client.id = this.generateId();
         client.createdAt = new Date().toISOString();
         clients.push(client);
         this.set('clients', clients);
@@ -156,7 +166,7 @@ class StorageManager {
     // Suppliers ma'lumotlari
     addSupplier(supplier) {
         const suppliers = this.get('suppliers', []);
-        supplier.id = Date.now().toString();
+        supplier.id = this.generateId();
         supplier.createdAt = new Date().toISOString();
         suppliers.push(supplier);
         this.set('suppliers', suppliers);
@@ -193,7 +203,7 @@ class StorageManager {
     // Transactions ma'lumotlari
     addTransaction(transaction) {
         const transactions = this.get('transactions', []);
-        transaction.id = Date.now().toString();
+        transaction.id = this.generateId();
         transaction.createdAt = new Date().toISOString();
         transactions.push(transaction);
         this.set('transactions', transactions);
@@ -231,14 +241,17 @@ class StorageManager {
 
     // Settings
     getSettings() {
-        return this.get('settings', {
-            taxCulture: 1,
+        const defaults = {
+            taxRegime: 'umumiy',
             taxVAT: 12,
             taxIncome: 15,
-            taxSSV: 5,
+            taxTurnover: 4,
+            taxSSV: 12,
+            taxNDFL: 12,
             autoCalculateTax: true,
             notifications: true
-        });
+        };
+        return { ...defaults, ...this.get('settings', {}) };
     }
 
     updateSettings(settings) {
@@ -361,7 +374,7 @@ class StorageManager {
     // Production orders
     addProductionOrder(order) {
         const orders = this.get('productionOrders', []);
-        order.id = Date.now().toString();
+        order.id = this.generateId();
         order.createdAt = new Date().toISOString();
         orders.push(order);
 
@@ -453,7 +466,7 @@ class StorageManager {
 
     addExchangeRate(rate) {
         const rates = this.get('exchangeRates', []);
-        rate.id = Date.now().toString();
+        rate.id = this.generateId();
         rates.push(rate);
         this.set('exchangeRates', rates);
         return rate;
@@ -520,7 +533,7 @@ class StorageManager {
     // Production recipes
     addProductionRecipe(recipe) {
         const recipes = this.get('productionRecipes', []);
-        recipe.id = Date.now().toString();
+        recipe.id = this.generateId();
         recipe.createdAt = new Date().toISOString();
         recipes.push(recipe);
         this.set('productionRecipes', recipes);

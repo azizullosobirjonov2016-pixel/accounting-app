@@ -598,6 +598,33 @@ tbody tr:hover {
     margin-bottom: 2rem;
 }
 
+.excel-toolbar {
+    display: flex;
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+    align-items: center;
+    padding: 1rem 1.5rem;
+    background: var(--light-bg);
+    border-radius: 0.5rem;
+    border: 1px dashed var(--border-color);
+}
+
+.excel-toolbar .btn {
+    padding: 0.6rem 1.1rem;
+    font-size: 0.9rem;
+    border-radius: 0.5rem;
+    cursor: pointer;
+    border: none;
+    font-weight: 500;
+}
+
+.excel-toolbar .excel-hint {
+    font-size: 0.85rem;
+    color: var(--text-secondary, #666);
+    flex-basis: 100%;
+}
+
 .inventory-actions {
     display: flex;
     gap: 1rem;

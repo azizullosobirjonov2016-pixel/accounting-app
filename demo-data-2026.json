@@ -1,0 +1,337 @@
+{
+  "clients": [
+    {
+      "name": "\"ALFA TEXNOLOGIYA\" MCHJ",
+      "stir": "304123456",
+      "phone": "+998901112233",
+      "address": "Toshkent sh., Chilonzor tumani, 12-uy",
+      "id": "msdogmzmy5i7ea",
+      "createdAt": "2026-08-03T20:24:22.882Z"
+    },
+    {
+      "name": "\"NAVOI SAVDO\" XK",
+      "stir": "304998877",
+      "phone": "+998933334455",
+      "address": "Navoiy viloyati, Navoiy shahri",
+      "id": "msdognv655jkbb",
+      "createdAt": "2026-08-03T20:24:24.018Z"
+    },
+    {
+      "name": "Karimov Aziz Rustamovich (YaTT)",
+      "stir": "30455667788",
+      "phone": "+998971234567",
+      "address": "Samarqand sh., Registon ko'chasi 5",
+      "id": "msdogoq95xjzlw",
+      "createdAt": "2026-08-03T20:24:25.137Z"
+    }
+  ],
+  "suppliers": [
+    {
+      "name": "Import Materiallari LLC",
+      "stir": "304556677",
+      "phone": "+998909998877",
+      "address": "Toshkent sh., Sergeli tumani",
+      "productType": "materials",
+      "id": "msdogoxiiuakui",
+      "createdAt": "2026-08-03T20:24:25.398Z"
+    },
+    {
+      "name": "Tex Uskuna Ta'minot",
+      "stir": "304334455",
+      "phone": "+998950001122",
+      "address": "Andijon viloyati",
+      "productType": "equipment",
+      "id": "msdogpsm3p9ojk",
+      "createdAt": "2026-08-03T20:24:26.518Z"
+    }
+  ],
+  "transactions": [
+    {
+      "id": "msdogul6o6tqoa",
+      "date": "2026-08-03",
+      "clientId": "msdogmzmy5i7ea",
+      "supplierId": "",
+      "type": "income",
+      "category": "sales",
+      "amount": 12000000,
+      "description": "Noutbuklar sotuvi - avgust",
+      "currency": "",
+      "rate": 1,
+      "amount_base": 12000000,
+      "createdAt": "2026-08-03T20:24:32.730Z"
+    },
+    {
+      "id": "msdoguv2ecukjc",
+      "date": "2026-08-03",
+      "clientId": "msdognv655jkbb",
+      "supplierId": "msdogoxiiuakui",
+      "type": "expense",
+      "category": "materials",
+      "amount": 3200000,
+      "description": "Elektr kabeli xaridi",
+      "currency": "",
+      "rate": 1,
+      "amount_base": 3200000,
+      "createdAt": "2026-08-03T20:24:33.086Z"
+    },
+    {
+      "id": "msdogv3fo7xzig",
+      "date": "2026-08-03",
+      "clientId": "msdogoq95xjzlw",
+      "supplierId": "",
+      "type": "expense",
+      "category": "rent",
+      "amount": 4500000,
+      "description": "Ombor ijarasi - avgust",
+      "currency": "",
+      "rate": 1,
+      "amount_base": 4500000,
+      "createdAt": "2026-08-03T20:24:33.387Z"
+    },
+    {
+      "id": "msdogwdoju4f29",
+      "date": "2026-08-03T20:24:35.052Z",
+      "type": "expense",
+      "category": "salaries",
+      "description": "Ish haqi (netto): Yusupova Malika Bahodirovna (2026-08)",
+      "amount": 7040000,
+      "payrollRecordId": "1785788675052",
+      "status": "completed",
+      "createdAt": "2026-08-03T20:24:35.052Z"
+    },
+    {
+      "date": "2026-08-03T20:24:35.052Z",
+      "type": "expense",
+      "category": "social_tax",
+      "description": "Ijtimoiy soliq - ISHV (12%): Yusupova Malika Bahodirovna (2026-08)",
+      "amount": 960000,
+      "payrollRecordId": "1785788675052",
+      "status": "completed",
+      "id": "msdogwdp157ohj",
+      "createdAt": "2026-08-03T20:24:35.053Z"
+    },
+    {
+      "id": "msdogx8pfl3vhz",
+      "date": "2026-08-03T20:24:36.169Z",
+      "type": "expense",
+      "category": "salaries",
+      "description": "Ish haqi (netto): Rahimov Jasur Anvarovich (2026-08)",
+      "amount": 4840000,
+      "payrollRecordId": "1785788676169",
+      "status": "completed",
+      "createdAt": "2026-08-03T20:24:36.169Z"
+    },
+    {
+      "date": "2026-08-03T20:24:36.169Z",
+      "type": "expense",
+      "category": "social_tax",
+      "description": "Ijtimoiy soliq - ISHV (12%): Rahimov Jasur Anvarovich (2026-08)",
+      "amount": 660000,
+      "payrollRecordId": "1785788676169",
+      "status": "completed",
+      "id": "msdogx8p4rgukf",
+      "createdAt": "2026-08-03T20:24:36.169Z"
+    },
+    {
+      "id": "msdogxlj50db02",
+      "createdAt": "2026-08-03T20:24:36.631Z",
+      "date": "2026-08-03",
+      "clientId": "msdogmzmy5i7ea",
+      "supplierId": "",
+      "type": "income",
+      "category": "sales",
+      "amount": 4256000,
+      "rate": 1,
+      "amount_base": 4256000,
+      "description": "Invoice INV-1785788676363: Ofis jihozlari yetkazib berish"
+    }
+  ],
+  "products": [
+    {
+      "id": "1785788667236",
+      "name": "Noutbuk Lenovo IdeaPad",
+      "category": "electronics",
+      "unit": "dona",
+      "minStock": 5,
+      "purchasePrice": 8500000,
+      "sellingPrice": 10500000,
+      "default_currency": "UZS",
+      "stock": 50
+    },
+    {
+      "id": "1785788667770",
+      "name": "Ofis stoli (yog'och)",
+      "category": "furniture",
+      "unit": "dona",
+      "minStock": 10,
+      "purchasePrice": 650000,
+      "sellingPrice": 950000,
+      "default_currency": "UZS",
+      "stock": 46
+    },
+    {
+      "id": "1785788668402",
+      "name": "Un (50kg qop)",
+      "category": "food",
+      "unit": "quti",
+      "minStock": 20,
+      "purchasePrice": 280000,
+      "sellingPrice": 340000,
+      "default_currency": "UZS",
+      "stock": 50
+    },
+    {
+      "id": "1785788669050",
+      "name": "Elektr kabeli (3x2.5mm)",
+      "category": "materials",
+      "unit": "metr",
+      "minStock": 100,
+      "purchasePrice": 8500,
+      "sellingPrice": 12000,
+      "default_currency": "UZS",
+      "stock": 50
+    }
+  ],
+  "inventoryMovements": [
+    {
+      "id": "1785788670568",
+      "productId": "1785788667236",
+      "type": "in",
+      "quantity": 50,
+      "newStock": null,
+      "date": "2026-08-03",
+      "description": "Boshlang'ich zahira kirimi"
+    },
+    {
+      "id": "1785788671218",
+      "productId": "1785788667770",
+      "type": "in",
+      "quantity": 50,
+      "newStock": null,
+      "date": "2026-08-03",
+      "description": "Boshlang'ich zahira kirimi"
+    },
+    {
+      "id": "1785788671851",
+      "productId": "1785788668402",
+      "type": "in",
+      "quantity": 50,
+      "newStock": null,
+      "date": "2026-08-03",
+      "description": "Boshlang'ich zahira kirimi"
+    },
+    {
+      "id": "1785788672470",
+      "productId": "1785788669050",
+      "type": "in",
+      "quantity": 50,
+      "newStock": null,
+      "date": "2026-08-03",
+      "description": "Boshlang'ich zahira kirimi"
+    }
+  ],
+  "productionOrders": [],
+  "productionRecipes": [],
+  "invoices": [
+    {
+      "id": "1785788676631",
+      "number": "INV-1785788676363",
+      "date": "2026-08-03",
+      "clientId": "msdogmzmy5i7ea",
+      "description": "Ofis jihozlari yetkazib berish",
+      "lineItems": [
+        {
+          "productId": "1785788667770",
+          "quantity": 4,
+          "price": 950000
+        }
+      ],
+      "subtotal": 3800000,
+      "vatRate": 12,
+      "vatAmount": 456000,
+      "total": 4256000,
+      "status": "Yaratildi"
+    }
+  ],
+  "employees": [
+    {
+      "id": "1785788673731",
+      "name": "Yusupova Malika Bahodirovna",
+      "position": "Bosh buxgalter",
+      "salary": 8000000,
+      "taxRate": 12,
+      "createdAt": "2026-08-03T20:24:33.731Z"
+    },
+    {
+      "id": "1785788674837",
+      "name": "Rahimov Jasur Anvarovich",
+      "position": "Ombor mudiri",
+      "salary": 5500000,
+      "taxRate": 12,
+      "createdAt": "2026-08-03T20:24:34.837Z"
+    }
+  ],
+  "payrollRecords": [
+    {
+      "id": "1785788675052",
+      "employeeId": "1785788673731",
+      "period": "2026-08",
+      "gross": 8000000,
+      "tax": 960000,
+      "socialTax": 960000,
+      "deductions": 0,
+      "net": 7040000,
+      "date": "2026-08-03T20:24:35.052Z",
+      "createdAt": "2026-08-03T20:24:35.052Z"
+    },
+    {
+      "id": "1785788676169",
+      "employeeId": "1785788674837",
+      "period": "2026-08",
+      "gross": 5500000,
+      "tax": 660000,
+      "socialTax": 660000,
+      "deductions": 0,
+      "net": 4840000,
+      "date": "2026-08-03T20:24:36.169Z",
+      "createdAt": "2026-08-03T20:24:36.169Z"
+    }
+  ],
+  "users": [
+    {
+      "id": "1",
+      "username": "user",
+      "password": "pass",
+      "role": "user",
+      "name": "Oddiy Foydalanuvchi",
+      "createdAt": "2026-08-03T20:24:22.437Z"
+    },
+    {
+      "id": "2",
+      "username": "manager",
+      "password": "pass",
+      "role": "manager",
+      "name": "Menejeri",
+      "createdAt": "2026-08-03T20:24:22.437Z"
+    },
+    {
+      "id": "3",
+      "username": "admin",
+      "password": "pass",
+      "role": "admin",
+      "name": "Administrator",
+      "createdAt": "2026-08-03T20:24:22.437Z"
+    }
+  ],
+  "settings": {
+    "taxRegime": "umumiy",
+    "taxVAT": 12,
+    "taxIncome": 15,
+    "taxTurnover": 4,
+    "taxSSV": 12,
+    "taxNDFL": 12,
+    "autoCalculateTax": true,
+    "notifications": true
+  },
+  "exportedAt": "2026-08-03T20:24:36.953Z"
+}

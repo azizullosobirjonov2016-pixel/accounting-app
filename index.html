@@ -152,6 +152,14 @@
                 <button class="btn btn-info" id="adjustStockBtn">Zahira Tuzatish</button>
             </div>
 
+            <div class="excel-toolbar">
+                <button class="btn btn-outline" id="productsTemplateBtn">📋 Shablon</button>
+                <button class="btn btn-secondary" id="productsExportBtn">📤 Excel'ga eksport</button>
+                <button class="btn btn-secondary" id="productsImportBtn">📥 Excel'dan import</button>
+                <input type="file" id="productsImportInput" accept=".xlsx,.xls" style="display:none;">
+                <span class="excel-hint">Mahsulotlarni Excel fayl orqali ommaviy qo'shish yoki eksport qilish</span>
+            </div>
+
             <!-- Add Product Modal -->
             <div id="addProductModal" class="modal">
                 <div class="modal-content">
@@ -223,7 +231,7 @@
                                 </select>
                             </div>
                             <div>
-                                <label>Miqdor:</label>
+                                <label for="movementQuantity">Miqdor:</label>
                                 <input type="number" id="movementQuantity" min="1" required>
                             </div>
                             <div>
@@ -284,7 +292,14 @@
         <!-- CLIENTS TAB -->
         <div class="tab-content" id="clients">
             <h2>👥 Mijozlar va Faol Shaxslar</h2>
-            
+
+            <div class="excel-toolbar">
+                <button class="btn btn-outline" id="clientsTemplateBtn">📋 Shablon</button>
+                <button class="btn btn-secondary" id="clientsExportBtn">📤 Excel'ga eksport</button>
+                <button class="btn btn-secondary" id="clientsImportBtn">📥 Excel'dan import</button>
+                <input type="file" id="clientsImportInput" accept=".xlsx,.xls" style="display:none;">
+            </div>
+
             <form id="clientForm" class="form-section">
                 <h3>Yangi Mijoz Qo'shish</h3>
                 <div class="form-grid">
@@ -318,7 +333,14 @@
         <!-- SUPPLIERS TAB -->
         <div class="tab-content" id="suppliers">
             <h2>🚚 Yetkazib Beruvchilar</h2>
-            
+
+            <div class="excel-toolbar">
+                <button class="btn btn-outline" id="suppliersTemplateBtn">📋 Shablon</button>
+                <button class="btn btn-secondary" id="suppliersExportBtn">📤 Excel'ga eksport</button>
+                <button class="btn btn-secondary" id="suppliersImportBtn">📥 Excel'dan import</button>
+                <input type="file" id="suppliersImportInput" accept=".xlsx,.xls" style="display:none;">
+            </div>
+
             <form id="supplierForm" class="form-section">
                 <h3>Yangi Yetkazib Beruvchi Qo'shish</h3>
                 <div class="form-grid">
@@ -363,7 +385,15 @@
         <!-- TRANSACTIONS TAB -->
         <div class="tab-content" id="transactions">
             <h2>💰 Tranzaksiyalar</h2>
-            
+
+            <div class="excel-toolbar">
+                <button class="btn btn-outline" id="transactionsTemplateBtn">📋 Shablon</button>
+                <button class="btn btn-secondary" id="transactionsExportBtn">📤 Excel'ga eksport</button>
+                <button class="btn btn-secondary" id="transactionsImportBtn">📥 Excel'dan import</button>
+                <input type="file" id="transactionsImportInput" accept=".xlsx,.xls" style="display:none;">
+                <span class="excel-hint">Import: "Turi" ustuniga <strong>income</strong> yoki <strong>expense</strong> yozing. Mijoz/Yetkazib beruvchi nomi mos kelmasa, avtomatik yaratiladi.</span>
+            </div>
+
             <form id="transactionForm" class="form-section">
                 <h3>Yangi Tranzaksiya Qo'shish</h3>
                 <div class="form-grid">
@@ -398,6 +428,7 @@
                             <option value="services">Xizmatlar</option>
                             <option value="materials">Materiallar xaridi</option>
                             <option value="salaries">Ishchilarga ish haqi</option>
+                            <option value="social_tax">Ijtimoiy soliq (ISHV)</option>
                             <option value="rent">Ijaraga to'lov</option>
                             <option value="utilities">Kommunal xarajlar</option>
                             <option value="transport">Transport xarajlari</option>
@@ -506,6 +537,9 @@
 
             <div class="production-list">
                 <h3>Sotuv hujjatlari</h3>
+                <div class="excel-toolbar">
+                    <button class="btn btn-secondary" id="invoicesExportBtn">📤 Excel'ga eksport</button>
+                </div>
                 <table class="transactions-table" id="invoiceTable">
                     <thead>
                         <tr>
@@ -529,6 +563,14 @@
             <div class="payroll-grid">
                 <div class="form-section">
                     <h3>Yangi Xodim</h3>
+
+                    <div class="excel-toolbar">
+                        <button class="btn btn-outline" id="employeesTemplateBtn">📋 Shablon</button>
+                        <button class="btn btn-secondary" id="employeesExportBtn">📤 Eksport</button>
+                        <button class="btn btn-secondary" id="employeesImportBtn">📥 Import</button>
+                        <input type="file" id="employeesImportInput" accept=".xlsx,.xls" style="display:none;">
+                    </div>
+
                     <form id="employeeForm">
                         <div class="form-grid">
                             <div>
@@ -544,8 +586,8 @@
                                 <input type="number" id="employeeSalary" min="0" value="0">
                             </div>
                             <div>
-                                <label>Soliq stavkasi (%):</label>
-                                <input type="number" id="employeeTaxRate" min="0" max="100" step="0.1" value="15">
+                                <label>JShDS - Jismoniy shaxslar daromad solig'i (%):</label>
+                                <input type="number" id="employeeTaxRate" min="0" max="100" step="0.1" value="12">
                             </div>
                         </div>
                         <button type="submit" class="btn btn-primary" id="addEmployeeBtn">Xodim qo'shish</button>
@@ -753,26 +795,38 @@
             <h2>⚙️ Sozlamalar</h2>
             
             <div class="settings-section">
-                <h3>Soliq Stavkalari (O'zbekiston 2024-2026)</h3>
+                <h3>Soliq Stavkalari (O'zbekiston Respublikasi, amaldagi)</h3>
                 <form id="settingsForm" class="form-section">
                     <div class="form-grid">
                         <div>
-                            <label>Madaniy-mamlakat tori soliq stavkasi (%):</label>
-                            <input type="number" id="taxCulture" value="1" min="0" max="100" step="0.1">
+                            <label>Soliq rejimi:</label>
+                            <select id="taxRegime">
+                                <option value="umumiy">Umumbelgilangan (QQS + Foyda solig'i)</option>
+                                <option value="soddalashtirilgan">Soddalashtirilgan (Aylanma solig'i)</option>
+                            </select>
                         </div>
                         <div>
-                            <label>Qo'shilgan qiymat soliq stavkasi (%):</label>
+                            <label>QQS - Qo'shilgan qiymat solig'i (%):</label>
                             <input type="number" id="taxVAT" value="12" min="0" max="100" step="0.1">
                         </div>
                         <div>
-                            <label>Daromad soliq stavkasi (%):</label>
+                            <label>Foyda solig'i - korxona (%):</label>
                             <input type="number" id="taxIncome" value="15" min="0" max="100" step="0.1">
                         </div>
                         <div>
-                            <label>Ishchi birligi soliq stavkasi (%):</label>
-                            <input type="number" id="taxSSV" value="5" min="0" max="100" step="0.1">
+                            <label>Aylanma solig'i - soddalashtirilgan rejim (%):</label>
+                            <input type="number" id="taxTurnover" value="4" min="0" max="100" step="0.1">
+                        </div>
+                        <div>
+                            <label>Ijtimoiy soliq / ISHV (%):</label>
+                            <input type="number" id="taxSSV" value="12" min="0" max="100" step="0.1">
+                        </div>
+                        <div>
+                            <label>JShDS - Jismoniy shaxslar daromad solig'i (%):</label>
+                            <input type="number" id="taxNDFL" value="12" min="0" max="100" step="0.1">
                         </div>
                     </div>
+                    <p class="excel-hint">QQS + Foyda solig'i umumbelgilangan rejimda qo'llanadi. Aylanma solig'i — soddalashtirilgan rejimdagi kichik korxonalar uchun (QQS va Foyda solig'i o'rniga).</p>
                     <button type="submit" class="btn btn-primary">Saqlash</button>
                 </form>
 
@@ -865,8 +919,10 @@
     </div>
     </div>
 
+    <script src="js/vendor/xlsx.full.min.js"></script>
     <script src="js/storage.js"></script>
     <script src="js/api-client.js"></script>
+    <script src="js/excel.js"></script>
     <script src="js/app.js"></script>
 </body>
 </html>
