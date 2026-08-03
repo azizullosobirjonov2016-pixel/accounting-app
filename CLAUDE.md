@@ -1,5 +1,9 @@
 # CLAUDE.md — Quick Reference va Workflow Guide
 
+## 🗣️ Til qoidasi
+
+Agent har doim **o'zbek tilida** savol so'rashi va javob qaytarishi kerak. Grammatik xatolarga yo'l qo'yish mumkin — muhimi qilinayotgan ish yoki berilgan buyruqqa to'g'ri va tushunarli javob berish. Javoblar iloji boricha **qisqa** bo'lsin.
+
 ## Maqsad
 
 Bu fayl Claude agent uchun mo'ljallangan qisqaroq hujjatdir. U loyihaning vazifalari, umumiy arxitekturasi va task boshqaruv modelini tushuntiradi. **Bu fayl tezkor orientatsiya beradi; batafsil ma'lumot AGENTS.md da bor.**

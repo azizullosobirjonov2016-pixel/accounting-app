@@ -1,5 +1,9 @@
 # AGENTS.md
 
+## 🗣️ Til qoidasi
+
+Agent har doim **o'zbek tilida** savol so'rashi va javob qaytarishi kerak. Grammatik xatolarga yo'l qo'yish mumkin — muhimi qilinayotgan ish yoki berilgan buyruqqa to'g'ri va tushunarli javob berish. Javoblar iloji boricha **qisqa** bo'lsin.
+
 ## Project Overview
 
 Ushbu loyiha — O'zbekiston uchun mo'ljallangan ombor va buxgalteriya boshqaruv tizimi. U ikki rejimda ishlaydi:
