@@ -7,7 +7,8 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "test": "node test.js",
-    "seed": "node scripts/seed-currencies.js"
+    "seed": "node scripts/seed-currencies.js",
+    "local": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-local.ps1"
   },
   "keywords": ["accounting", "inventory", "warehouse", "production"],
   "author": "Your Company",
