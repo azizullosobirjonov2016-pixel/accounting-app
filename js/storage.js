@@ -78,6 +78,26 @@ class StorageManager {
                 notifications: true
             });
         }
+
+        if (!this.get('companyInfo')) {
+            this.set('companyInfo', {
+                name: '',
+                legalForm: 'MChJ',
+                stir: '',
+                address: '',
+                phone: '',
+                bankName: '',
+                bankAccount: '',
+                mfo: '',
+                oked: '',
+                director: '',
+                accountant: ''
+            });
+        }
+
+        if (!this.get('documents')) {
+            this.set('documents', []);
+        }
     }
 
     set(key, value) {
@@ -261,6 +281,48 @@ class StorageManager {
         return updated;
     }
 
+    // Korxona rekvizitlari (hujjatlarda "Sotuvchi/Ijrochi" sifatida ishlatiladi)
+    getCompanyInfo() {
+        const defaults = {
+            name: '', legalForm: 'MChJ', stir: '', address: '', phone: '',
+            bankName: '', bankAccount: '', mfo: '', oked: '', director: '', accountant: ''
+        };
+        return { ...defaults, ...this.get('companyInfo', {}) };
+    }
+
+    updateCompanyInfo(info) {
+        const current = this.getCompanyInfo();
+        const updated = { ...current, ...info };
+        this.set('companyInfo', updated);
+        return updated;
+    }
+
+    // Yaratilgan hujjatlar (schet-faktura, akt, shartnoma, kassa order, ishonchnoma)
+    addDocument(doc) {
+        const documents = this.get('documents', []);
+        doc.id = this.generateId();
+        doc.createdAt = new Date().toISOString();
+        documents.push(doc);
+        this.set('documents', documents);
+        return doc;
+    }
+
+    getDocuments() {
+        return this.get('documents', []);
+    }
+
+    getDocumentById(id) {
+        const documents = this.get('documents', []);
+        return documents.find(d => d.id === id);
+    }
+
+    deleteDocument(id) {
+        const documents = this.get('documents', []);
+        const filtered = documents.filter(d => d.id !== id);
+        this.set('documents', filtered);
+        return true;
+    }
+
     // Backup va Restore
     exportData() {
         const data = {
@@ -276,6 +338,8 @@ class StorageManager {
             payrollRecords: this.get('payrollRecords', []),
             users: this.get('users', []),
             settings: this.get('settings', {}),
+            companyInfo: this.get('companyInfo', {}),
+            documents: this.get('documents', []),
             exportedAt: new Date().toISOString()
         };
         return JSON.stringify(data, null, 2);
@@ -296,6 +360,8 @@ class StorageManager {
             if (data.payrollRecords) this.set('payrollRecords', data.payrollRecords);
             if (data.users) this.set('users', data.users);
             if (data.settings) this.set('settings', data.settings);
+            if (data.companyInfo) this.set('companyInfo', data.companyInfo);
+            if (data.documents) this.set('documents', data.documents);
             return true;
         } catch (e) {
             console.error('Import xatosi:', e);

@@ -445,6 +445,13 @@ class AccountingApp {
         this.setupExcelToolbar('transactions', this.exportTransactionsToExcel, this.importTransactionsFromExcel);
         this.setupExcelToolbar('employees', this.exportEmployeesToExcel, this.importEmployeesFromExcel);
         document.getElementById('invoicesExportBtn')?.addEventListener('click', () => this.exportInvoicesToExcel());
+
+        // Documents (Hujjatlar)
+        document.getElementById('companyInfoForm')?.addEventListener('submit', (e) => this.handleSaveCompanyInfo(e));
+        document.getElementById('documentType')?.addEventListener('change', () => this.renderDocumentDynamicFields());
+        document.getElementById('documentForm')?.addEventListener('submit', (e) => this.handleGenerateDocument(e));
+        document.getElementById('printDocumentBtn')?.addEventListener('click', () => window.print());
+        document.getElementById('saveDocumentBtn')?.addEventListener('click', () => this.handleSaveDocument());
     }
 
     // entityPrefix mos keladi HTML id'lariga: <entityPrefix>TemplateBtn/ExportBtn/ImportBtn/ImportInput
@@ -501,7 +508,236 @@ class AccountingApp {
             this.loadProduction();
         } else if (tabName === 'settings') {
             this.loadSettings();
+        } else if (tabName === 'documents') {
+            this.loadDocuments();
         }
+    }
+
+    // DOCUMENTS (Hujjatlar)
+    loadDocuments() {
+        this.loadCompanyInfoForm();
+        this.updateDocumentClientDropdown();
+        this.updateDocumentInvoiceDropdown();
+        const dateField = document.getElementById('documentDate');
+        if (dateField && !dateField.value) {
+            dateField.value = new Date().toISOString().split('T')[0];
+        }
+        this.renderDocumentDynamicFields();
+        this.displaySavedDocuments();
+        document.getElementById('documentPreviewSection').style.display = 'none';
+    }
+
+    loadCompanyInfoForm() {
+        const info = storage.getCompanyInfo();
+        document.getElementById('companyLegalForm').value = info.legalForm || 'MChJ';
+        document.getElementById('companyName').value = info.name || '';
+        document.getElementById('companyStir').value = info.stir || '';
+        document.getElementById('companyOked').value = info.oked || '';
+        document.getElementById('companyAddress').value = info.address || '';
+        document.getElementById('companyPhone').value = info.phone || '';
+        document.getElementById('companyBankName').value = info.bankName || '';
+        document.getElementById('companyBankAccount').value = info.bankAccount || '';
+        document.getElementById('companyMfo').value = info.mfo || '';
+        document.getElementById('companyDirector').value = info.director || '';
+        document.getElementById('companyAccountant').value = info.accountant || '';
+    }
+
+    handleSaveCompanyInfo(e) {
+        e.preventDefault();
+        const info = {
+            legalForm: document.getElementById('companyLegalForm').value,
+            name: document.getElementById('companyName').value.trim(),
+            stir: document.getElementById('companyStir').value.trim(),
+            oked: document.getElementById('companyOked').value.trim(),
+            address: document.getElementById('companyAddress').value.trim(),
+            phone: document.getElementById('companyPhone').value.trim(),
+            bankName: document.getElementById('companyBankName').value.trim(),
+            bankAccount: document.getElementById('companyBankAccount').value.trim(),
+            mfo: document.getElementById('companyMfo').value.trim(),
+            director: document.getElementById('companyDirector').value.trim(),
+            accountant: document.getElementById('companyAccountant').value.trim()
+        };
+        storage.updateCompanyInfo(info);
+        this.showMessage('Korxona rekvizitlari saqlandi', 'success');
+    }
+
+    updateDocumentClientDropdown() {
+        const select = document.getElementById('documentClient');
+        if (!select) return;
+        const clients = storage.getClients();
+        const cur = select.value;
+        select.innerHTML = '<option value="">-- Tanlang --</option>';
+        clients.forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c.id;
+            opt.textContent = c.name;
+            select.appendChild(opt);
+        });
+        select.value = cur;
+    }
+
+    updateDocumentInvoiceDropdown() {
+        const select = document.getElementById('documentInvoice');
+        if (!select) return;
+        const invoices = storage.getInvoices();
+        const cur = select.value;
+        select.innerHTML = '<option value="">-- Tanlang --</option>';
+        invoices.forEach(inv => {
+            const client = storage.getClientById(inv.clientId);
+            const opt = document.createElement('option');
+            opt.value = inv.id;
+            opt.textContent = `${inv.number} — ${client ? client.name : ''} (${this.formatNumber(inv.total)} ${inv.currency || "so'm"})`;
+            select.appendChild(opt);
+        });
+        select.value = cur;
+    }
+
+    renderDocumentDynamicFields() {
+        const type = document.getElementById('documentType').value;
+        const container = document.getElementById('documentDynamicFields');
+        const invoiceFieldWrap = document.getElementById('documentInvoiceField');
+        const clientFieldWrap = document.getElementById('documentClientField');
+        container.innerHTML = '';
+
+        if (!type) {
+            invoiceFieldWrap.style.display = 'none';
+            clientFieldWrap.style.display = 'none';
+            return;
+        }
+
+        const config = documentManager.fieldConfigs[type];
+        invoiceFieldWrap.style.display = config.needsInvoice ? '' : 'none';
+        clientFieldWrap.style.display = config.needsClient ? '' : 'none';
+
+        if (config.fields.length > 0) {
+            const grid = document.createElement('div');
+            grid.className = 'form-grid';
+            config.fields.forEach(f => {
+                const wrap = document.createElement('div');
+                const placeholderAttr = f.placeholder ? ` placeholder="${f.placeholder}"` : '';
+                wrap.innerHTML = `<label>${f.label}:</label><input type="${f.type}" id="${f.id}"${placeholderAttr}>`;
+                grid.appendChild(wrap);
+            });
+            container.appendChild(grid);
+        }
+    }
+
+    handleGenerateDocument(e) {
+        e.preventDefault();
+        const type = document.getElementById('documentType').value;
+        if (!type) {
+            this.showMessage('Hujjat turini tanlang', 'error');
+            return;
+        }
+
+        const company = storage.getCompanyInfo();
+        if (!company.name) {
+            this.showMessage("Avval korxona rekvizitlarini to'ldiring", 'error');
+            return;
+        }
+
+        const date = document.getElementById('documentDate').value || new Date().toISOString().split('T')[0];
+        const clientId = document.getElementById('documentClient').value;
+        let effectiveClient = clientId ? storage.getClientById(clientId) : null;
+        const invoiceId = document.getElementById('documentInvoice').value;
+        const invoice = invoiceId ? storage.getInvoiceById(invoiceId) : null;
+
+        let items = null;
+        let currency = null;
+        if (invoice) {
+            items = (invoice.lineItems || []).map(li => {
+                const product = storage.getProductById(li.productId);
+                return { name: product ? product.name : li.productId, quantity: li.quantity, price: li.price };
+            });
+            currency = invoice.currency;
+            if (!effectiveClient) effectiveClient = storage.getClientById(invoice.clientId);
+        }
+
+        const number = `${type.toUpperCase()}-${Date.now()}`;
+        const contractAmountField = document.getElementById('docContractAmount');
+        const cashAmountField = document.getElementById('docCashAmount');
+
+        const data = {
+            company,
+            client: effectiveClient,
+            date,
+            number,
+            items,
+            currency,
+            subject: document.getElementById('docContractSubject')?.value.trim(),
+            amount: parseFloat(contractAmountField?.value) || parseFloat(cashAmountField?.value) || 0,
+            term: document.getElementById('docContractTerm')?.value.trim(),
+            party: document.getElementById('docCashParty')?.value.trim(),
+            basis: document.getElementById('docCashBasis')?.value.trim(),
+            poaName: document.getElementById('docPoaName')?.value.trim(),
+            poaPassport: document.getElementById('docPoaPassport')?.value.trim(),
+            poaValidUntil: document.getElementById('docPoaValidUntil')?.value,
+            poaAuthority: document.getElementById('docPoaAuthority')?.value.trim()
+        };
+
+        const html = documentManager.build(type, data);
+        document.getElementById('documentPreview').innerHTML = html;
+        const previewSection = document.getElementById('documentPreviewSection');
+        previewSection.style.display = '';
+        previewSection.scrollIntoView({ behavior: 'smooth' });
+
+        this.currentGeneratedDocument = {
+            type, number, date,
+            clientId: effectiveClient ? effectiveClient.id : null,
+            html
+        };
+    }
+
+    handleSaveDocument() {
+        if (!this.currentGeneratedDocument) {
+            this.showMessage('Avval hujjatni shakllantiring', 'error');
+            return;
+        }
+        storage.addDocument(this.currentGeneratedDocument);
+        this.showMessage('Hujjat saqlandi', 'success');
+        this.displaySavedDocuments();
+    }
+
+    displaySavedDocuments() {
+        const container = document.getElementById('savedDocumentsList');
+        if (!container) return;
+        const documents = storage.getDocuments().slice().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        container.innerHTML = '';
+        if (documents.length === 0) {
+            container.innerHTML = '<div class="empty-state"><p>Hali hujjat saqlanmagan</p></div>';
+            return;
+        }
+        documents.forEach(doc => {
+            const client = doc.clientId ? storage.getClientById(doc.clientId) : null;
+            const item = document.createElement('div');
+            item.className = 'list-item';
+            item.innerHTML = `
+                <h4>${documentManager.typeLabels[doc.type] || doc.type}</h4>
+                <p><strong>№</strong> ${doc.number}</p>
+                <p>Sana: ${documentManager.formatDate(doc.date)}${client ? ' | Mijoz: ' + client.name : ''}</p>
+                <div class="list-item-actions">
+                    <button class="btn btn-secondary" onclick="app.viewSavedDocument('${doc.id}')">Ko'rish</button>
+                    <button class="btn btn-danger" onclick="app.deleteSavedDocument('${doc.id}')">O'chirish</button>
+                </div>
+            `;
+            container.appendChild(item);
+        });
+    }
+
+    viewSavedDocument(id) {
+        const doc = storage.getDocumentById(id);
+        if (!doc) return;
+        document.getElementById('documentPreview').innerHTML = doc.html;
+        const previewSection = document.getElementById('documentPreviewSection');
+        previewSection.style.display = '';
+        previewSection.scrollIntoView({ behavior: 'smooth' });
+        this.currentGeneratedDocument = doc;
+    }
+
+    deleteSavedDocument(id) {
+        if (!confirm("Hujjatni o'chirishni tasdiqlaysizmi?")) return;
+        storage.deleteDocument(id);
+        this.displaySavedDocuments();
     }
 
     // PAYROLL

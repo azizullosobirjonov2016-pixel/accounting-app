@@ -56,6 +56,7 @@
                 <button class="nav-btn" data-tab="payroll">👥 Ish haqi</button>
                 <button class="nav-btn" data-tab="production">Ishlab chiqarish</button>
                 <button class="nav-btn" data-tab="reports">Hisobotlar</button>
+                <button class="nav-btn" data-tab="documents">📄 Hujjatlar</button>
                 <button class="nav-btn" data-tab="settings">Sozlamalar</button>
             </div>
             <div class="header-user" id="headerUser" style="display: flex; align-items: center; gap: 10px;">
@@ -790,6 +791,124 @@
             </div>
         </div>
 
+        <!-- DOCUMENTS TAB -->
+        <div class="tab-content" id="documents">
+            <h2>📄 Hujjatlar (Soliq Kodeksi bo'yicha majburiy shakllar)</h2>
+            <p class="excel-hint">Yuridik shaxslar uchun majburiy asosiy hujjatlar namunalari: elektron hisob-faktura, bajarilgan ish/xizmat akti, shartnoma, kassa orderi va ishonchnoma. Ma'lumotlar mavjud mijoz/invoice yozuvlaridan avtomatik to'ldiriladi.</p>
+
+            <div class="settings-section">
+                <h3>Korxona Rekvizitlari (Sotuvchi/Ijrochi)</h3>
+                <form id="companyInfoForm" class="form-section">
+                    <div class="form-grid">
+                        <div>
+                            <label>Tashkiliy-huquqiy shakl:</label>
+                            <select id="companyLegalForm">
+                                <option value="MChJ">MChJ</option>
+                                <option value="AJ">AJ</option>
+                                <option value="XK">Xususiy korxona</option>
+                                <option value="YaTT">YaTT (yakka tartibdagi tadbirkor)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Korxona nomi:</label>
+                            <input type="text" id="companyName" placeholder="masalan: Tong Nur">
+                        </div>
+                        <div>
+                            <label>STIR:</label>
+                            <input type="text" id="companyStir" placeholder="12 raqamli kod">
+                        </div>
+                        <div>
+                            <label>OKED:</label>
+                            <input type="text" id="companyOked" placeholder="OKED kodi">
+                        </div>
+                        <div>
+                            <label>Manzil:</label>
+                            <input type="text" id="companyAddress" placeholder="Yuridik manzil">
+                        </div>
+                        <div>
+                            <label>Telefon:</label>
+                            <input type="tel" id="companyPhone" placeholder="+998...">
+                        </div>
+                        <div>
+                            <label>Bank nomi:</label>
+                            <input type="text" id="companyBankName" placeholder="masalan: «Ipoteka bank» ATB">
+                        </div>
+                        <div>
+                            <label>Hisob raqami (h/r):</label>
+                            <input type="text" id="companyBankAccount" placeholder="20208...">
+                        </div>
+                        <div>
+                            <label>MFO:</label>
+                            <input type="text" id="companyMfo" placeholder="00000">
+                        </div>
+                        <div>
+                            <label>Direktor F.I.Sh.:</label>
+                            <input type="text" id="companyDirector" placeholder="Direktor ismi">
+                        </div>
+                        <div>
+                            <label>Bosh buxgalter F.I.Sh.:</label>
+                            <input type="text" id="companyAccountant" placeholder="Bosh buxgalter ismi">
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Rekvizitlarni saqlash</button>
+                </form>
+            </div>
+
+            <div class="settings-section">
+                <h3>Hujjat Yaratish</h3>
+                <form id="documentForm" class="form-section">
+                    <div class="form-grid">
+                        <div>
+                            <label>Hujjat turi:</label>
+                            <select id="documentType" required>
+                                <option value="">-- Tanlang --</option>
+                                <option value="invoice-faktura">Elektron hisob-faktura (schet-faktura)</option>
+                                <option value="act">Bajarilgan ish/xizmat akti</option>
+                                <option value="contract">Shartnoma (oldi-sotdi/xizmat)</option>
+                                <option value="cash-in">Kassa order — Kirim (PKO)</option>
+                                <option value="cash-out">Kassa order — Chiqim (RKO)</option>
+                                <option value="power-of-attorney">Ishonchnoma</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Hujjat sanasi:</label>
+                            <input type="date" id="documentDate">
+                        </div>
+                        <div id="documentClientField" style="display:none;">
+                            <label>Mijoz:</label>
+                            <select id="documentClient">
+                                <option value="">-- Tanlang --</option>
+                            </select>
+                        </div>
+                        <div id="documentInvoiceField" style="display:none;">
+                            <label>Bog'liq invoice (ixtiyoriy — mahsulot qatorlarini avtomatik to'ldiradi):</label>
+                            <select id="documentInvoice">
+                                <option value="">-- Tanlang --</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div id="documentDynamicFields"></div>
+
+                    <button type="submit" class="btn btn-primary">Hujjatni shakllantirish</button>
+                </form>
+            </div>
+
+            <div class="settings-section" id="documentPreviewSection" style="display:none;">
+                <h3>Hujjat Ko'rinishi</h3>
+                <div class="document-actions">
+                    <button type="button" class="btn btn-secondary" id="printDocumentBtn">🖨️ Chop etish</button>
+                    <button type="button" class="btn btn-primary" id="saveDocumentBtn">💾 Saqlash</button>
+                </div>
+                <div id="documentPreview" class="document-preview"></div>
+            </div>
+
+            <div class="settings-section">
+                <h3>Saqlangan Hujjatlar</h3>
+                <div id="savedDocumentsList" class="list-container"></div>
+            </div>
+        </div>
+
         <!-- SETTINGS TAB -->
         <div class="tab-content" id="settings">
             <h2>⚙️ Sozlamalar</h2>
@@ -923,6 +1042,7 @@
     <script src="js/storage.js"></script>
     <script src="js/api-client.js"></script>
     <script src="js/excel.js"></script>
+    <script src="js/documents.js"></script>
     <script src="js/app.js"></script>
 </body>
 </html>
