@@ -4,15 +4,15 @@
 
 | Task | Nomi | Status | Priority | Tugallash % |
 |------|------|--------|----------|------------|
-| TASK-1 | Database Schema | 🟡 Chala | 🔴 HIGH | 50% |
-| TASK-2 | API Endpoints | 🔴 Boshlanmagan | 🔴 HIGH | 0% |
-| TASK-3 | api-client.js | 🟡 Chala | 🔴 HIGH | 30% |
-| TASK-4 | app.js Server Mode | 🟡 Chala | 🔴 HIGH | 40% |
-| TASK-5 | Password Encryption | 🔴 Boshlanmagan | 🟡 MEDIUM | 0% |
-| TASK-6 | Error Handling | 🔴 Boshlanmagan | 🟡 MEDIUM | 0% |
-| TASK-7 | RBAC | 🟡 Chala | 🟡 MEDIUM | 20% |
-| TASK-8 | .env Config | 🔴 Boshlanmagan | 🟡 MEDIUM | 0% |
-| TASK-9 | Settings UI | 🟡 Chala | 🟡 MEDIUM | 30% |
+| TASK-1 | Database Schema | ✅ Tugallandi | 🔴 HIGH | 100% |
+| TASK-2 | API Endpoints | ✅ Tugallandi | 🔴 HIGH | 100% |
+| TASK-3 | api-client.js | ✅ Tugallandi | 🔴 HIGH | 100% |
+| TASK-4 | app.js Server Mode | ✅ Tugallandi | 🔴 HIGH | 100% |
+| TASK-5 | Password Encryption | ✅ Tugallandi | 🟡 MEDIUM | 100% |
+| TASK-6 | Error Handling | 🟡 Chala | 🟡 MEDIUM | 60% |
+| TASK-7 | RBAC | ✅ Tugallandi | 🟡 MEDIUM | 90% |
+| TASK-8 | .env Config | 🟡 Chala | 🟡 MEDIUM | 50% |
+| TASK-9 | Settings UI | ✅ Tugallandi | 🟡 MEDIUM | 90% |
 | TASK-10 | Unit Tests | 🔴 Boshlanmagan | 🟢 LOW | 0% |
 | TASK-11 | Reporting | 🔴 Boshlanmagan | 🟢 LOW | 0% |
 | TASK-12 | WebSocket | 🔴 Boshlanmagan | 🟢 LOW | 0% |
@@ -189,6 +189,15 @@ curl -X POST http://localhost:5000/api/auth/login \
 5. **Error Logs**: Console va file'ga log qilish implement qiling
 
 ---
+
+## 🔄 2026-08-05 yangilanishi: to'liq dinamik (SQLite) rejimga o'tildi
+
+Loyiha localStorage'dan butunlay voz kechib, faqat serverga (Express + SQLite) tayanadigan qilib qayta qurildi:
+- `server.js`: barcha entity uchun to'liq CRUD (suppliers, invoices+QQS, production, inventory-movements, settings, company-info, documents), bootstrap-admin, `crypto.randomUUID()` ID'lar
+- `js/api-client.js`: `js/storage.js`dagi barcha metodlarga mos keluvchi to'liq client
+- `js/app.js`: 3000+ qatorning deyarli barchasi asinxron `api.*` chaqiruvlariga o'tkazildi, `js/storage.js` butunlay o'chirildi
+- Ko'p-foydalanuvchili (bir vaqtda ikki sessiya bir xil ma'lumotni ko'radi) Playwright orqali tasdiqlandi
+- Zaxira olish/qaytarish (backup/restore) ID moslashtirish bilan qayta yozildi
 
 ## 📞 Support
 

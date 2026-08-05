@@ -5,51 +5,72 @@ class AccountingApp {
         this.init();
     }
 
-    init() {
-        // Skip auth if storage is not available (for development/debugging)
-        if (typeof storage === 'undefined') {
-            console.warn('Storage not available, skipping auth');
-            document.getElementById('loginModal').style.display = 'none';
-            this.showMainApp();
-        } else if (!storage.isAuthenticated()) {
+    async init() {
+        this.currentUser = null;
+
+        if (!api.isAuthenticated()) {
             this.setupLoginPage();
             return;
-        } else {
-            document.getElementById('loginModal').classList.remove('active');
-            this.showMainApp();
         }
+
+        try {
+            const { user } = await api.getMe();
+            this.currentUser = user;
+        } catch (err) {
+            // Token expired/invalid - back to login
+            api.logout();
+            this.setupLoginPage();
+            return;
+        }
+
+        document.getElementById('loginModal').classList.remove('active');
+        this.showMainApp();
         this.setupEventListeners();
-        this.loadCurrencies();
-        this.loadDashboard();
-        this.updateClientDropdowns();
-        this.updateSupplierDropdowns();
-        if (typeof storage !== 'undefined') {
-            this.updateUserDisplay();
-        }
+        this.updateUserDisplay();
+        await this.loadCurrencies();
+        await this.loadDashboard();
+        await this.updateClientDropdowns();
+        await this.updateSupplierDropdowns();
+    }
+
+    // Role-based UI checks - based on the JWT session restored via /api/auth/me
+    canAccess(requiredRole) {
+        if (!this.currentUser) return false;
+        const roleHierarchy = { user: 1, manager: 2, admin: 3 };
+        return (roleHierarchy[this.currentUser.role] || 0) >= (roleHierarchy[requiredRole] || 0);
+    }
+
+    canDelete() {
+        return !!this.currentUser && ['manager', 'admin'].includes(this.currentUser.role);
+    }
+
+    canEditSettings() {
+        return !!this.currentUser && this.currentUser.role === 'admin';
     }
 
     async loadCurrencies() {
-        // Try server first, fallback to basic list
         let list = [];
         try {
-            if (api.useServer) {
-                const res = await api.getCurrencies();
-                if (Array.isArray(res)) list = res;
-            }
+            const res = await api.getCurrencies();
+            if (Array.isArray(res)) list = res;
         } catch (e) {
-            console.warn('Could not load currencies from server, falling back');
+            console.warn('Could not load currencies from server', e);
         }
 
         if (list.length === 0) {
-            // fallback to local storage currencies
-            list = storage.getCurrencies();
-            if (!list || list.length === 0) {
-                list = [
-                    { code: 'UZS', name: 'Uzbekistani Som', symbol: "so'" },
-                    { code: 'USD', name: 'US Dollar', symbol: '$' },
-                    { code: 'EUR', name: 'Euro', symbol: '€' }
-                ];
-            }
+            list = [
+                { code: 'UZS', name: 'Uzbekistani Som', symbol: "so'" },
+                { code: 'USD', name: 'US Dollar', symbol: '$' },
+                { code: 'EUR', name: 'Euro', symbol: '€' }
+            ];
+        }
+        this.currencies = list;
+
+        try {
+            this.settings = await api.getSettings();
+        } catch (e) {
+            console.warn('Could not load settings from server', e);
+            this.settings = this.settings || {};
         }
 
         // Populate selects if present
@@ -120,8 +141,7 @@ class AccountingApp {
         }
 
         // Load admin lists (currencies & rates) if settings UI present
-        const settings = storage.getSettings();
-        const defaultCurrency = settings.defaultCurrency || (list[0] && list[0].code);
+        const defaultCurrency = this.settings.defaultCurrency || (list[0] && list[0].code);
 
         if (transCurrency && !transCurrency.value && defaultCurrency) {
             transCurrency.value = defaultCurrency;
@@ -151,13 +171,12 @@ class AccountingApp {
     }
 
     getCurrencySymbol(code) {
-        const currency = storage.getCurrencies().find(c => c.code === code);
+        const currency = (this.currencies || []).find(c => c.code === code);
         return currency?.symbol || code;
     }
 
     formatCurrency(amount, code) {
-        const settings = storage.getSettings();
-        const showSymbol = settings.showCurrencySymbol !== false;
+        const showSymbol = (this.settings && this.settings.showCurrencySymbol) !== false;
         const currencyText = showSymbol ? this.getCurrencySymbol(code) : (code || "so'");
         return `${this.formatNumber(amount)} ${currencyText}`;
     }
@@ -170,16 +189,17 @@ class AccountingApp {
 
         const amount = parseFloat(amountEl.value) || 0;
         const currency = currencyEl.value;
-        if (!currency || !api.useServer) {
+        const base = (this.settings && this.settings.defaultCurrency) || 'UZS';
+        if (!currency || currency === base) {
             previewEl.textContent = `${this.formatNumber(amount)} ${currency || ''}`;
             return;
         }
 
         try {
-            const rateObj = await api.getExchangeRate(currency, (localStorage.getItem('BASE_CURRENCY') || 'UZS'));
+            const rateObj = await api.getExchangeRate(currency, base);
             const rate = rateObj.rate || 1;
-            const base = amount * rate;
-            previewEl.textContent = `${this.formatNumber(base)} so'm (rate ${rate})`;
+            const converted = amount * rate;
+            previewEl.textContent = `${this.formatNumber(converted)} so'm (kurs ${rate})`;
         } catch (e) {
             previewEl.textContent = '—';
         }
@@ -187,7 +207,7 @@ class AccountingApp {
 
     // Admin: load and render currencies & rates
     async loadAdminLists() {
-        const list = api.useServer ? (await api.getCurrencies().catch(() => storage.getCurrencies())) : storage.getCurrencies();
+        const list = this.currencies || [];
         const container = document.getElementById('adminCurrenciesList');
         const rateFrom = document.getElementById('rateFrom');
         const rateTo = document.getElementById('rateTo');
@@ -212,9 +232,9 @@ class AccountingApp {
             });
         }
 
-        // Render exchange rates from local storage (server rates can be added via API)
+        // Render exchange rate history
         if (ratesContainer) {
-            const rates = storage.getExchangeRates();
+            const rates = await api.getExchangeRates().catch(() => []);
             ratesContainer.innerHTML = '';
             if (!rates || rates.length === 0) {
                 ratesContainer.innerHTML = '<div class="empty-state"><p>Hali kurs yozuvlari mavjud emas</p></div>';
@@ -242,14 +262,10 @@ class AccountingApp {
         if (!code) return this.showMessage('Currency code required', 'error');
         const payload = { code, name, symbol };
         try {
-            if (api.useServer) {
-                await api.addCurrency(payload);
-            } else {
-                storage.addCurrency(payload);
-            }
+            await api.addCurrency(payload);
             this.showMessage('Currency saved', 'success');
-            this.loadCurrencies();
-            this.loadAdminLists();
+            await this.loadCurrencies();
+            await this.loadAdminLists();
             document.getElementById('currencyForm').reset();
         } catch (err) {
             console.error(err);
@@ -264,15 +280,10 @@ class AccountingApp {
         const rate = parseFloat(document.getElementById('rateValue').value);
         const date = document.getElementById('rateDate').value || new Date().toISOString().split('T')[0];
         if (!from || !to || !rate) return this.showMessage('From, to and rate are required', 'error');
-        const payloadLocal = { from_currency: from, to_currency: to, rate, date, source: 'admin' };
         try {
-            if (api.useServer) {
-                await api.addExchangeRate(payloadLocal);
-            }
-            // Always add to local storage for offline visibility
-            storage.addExchangeRate({ from_currency: from, to_currency: to, rate, date, source: 'admin' });
+            await api.addExchangeRate({ from_currency: from, to_currency: to, rate, date, source: 'admin' });
             this.showMessage('Exchange rate added', 'success');
-            this.loadAdminLists();
+            await this.loadAdminLists();
             document.getElementById('exchangeRateForm').reset();
         } catch (err) {
             console.error(err);
@@ -282,31 +293,79 @@ class AccountingApp {
 
     setupLoginPage() {
         const loginForm = document.getElementById('loginForm');
+        const bootstrapForm = document.getElementById('bootstrapForm');
         if (loginForm) {
             loginForm.addEventListener('submit', (e) => this.handleLogin(e));
         }
+        if (bootstrapForm) {
+            bootstrapForm.addEventListener('submit', (e) => this.handleBootstrapRegister(e));
+        }
+        document.getElementById('showBootstrapLink')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            loginForm.style.display = 'none';
+            bootstrapForm.style.display = '';
+        });
+        document.getElementById('showLoginLink')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            bootstrapForm.style.display = 'none';
+            loginForm.style.display = '';
+        });
     }
 
-    handleLogin(e) {
+    async handleLogin(e) {
         e.preventDefault();
         const username = document.getElementById('loginUsername').value;
         const password = document.getElementById('loginPassword').value;
-        const role = document.getElementById('loginRole').value;
-        
-        const session = storage.login(username, password, role);
-        if (!session) {
-            alert('Noto\'g\'ri foydalanuvchi nomi, parol yoki rol!');
+
+        try {
+            const result = await api.login(username, password);
+            this.currentUser = result.user;
+        } catch (err) {
+            alert('Noto\'g\'ri foydalanuvchi nomi yoki parol!');
             return;
         }
-        
-        // Hide login modal and show main app
+
         document.getElementById('loginModal').classList.remove('active');
         this.showMainApp();
         this.setupEventListeners();
-        this.loadDashboard();
-        this.updateClientDropdowns();
-        this.updateSupplierDropdowns();
         this.updateUserDisplay();
+        await this.loadCurrencies();
+        await this.loadDashboard();
+        await this.updateClientDropdowns();
+        await this.updateSupplierDropdowns();
+    }
+
+    async handleBootstrapRegister(e) {
+        e.preventDefault();
+        const name = document.getElementById('bootstrapName').value.trim();
+        const username = document.getElementById('bootstrapUsername').value.trim();
+        const password = document.getElementById('bootstrapPassword').value;
+
+        try {
+            await api.register(username, password, name);
+        } catch (err) {
+            alert(err.body?.error || 'Administrator yaratib bo\'lmadi (balki foydalanuvchilar allaqachon mavjud)');
+            return;
+        }
+
+        try {
+            const result = await api.login(username, password);
+            this.currentUser = result.user;
+        } catch (err) {
+            alert('Administrator yaratildi, lekin avtomatik kirish muvaffaqiyatsiz. Iltimos, qo\'lda kiring.');
+            document.getElementById('bootstrapForm').style.display = 'none';
+            document.getElementById('loginForm').style.display = '';
+            return;
+        }
+
+        document.getElementById('loginModal').classList.remove('active');
+        this.showMainApp();
+        this.setupEventListeners();
+        this.updateUserDisplay();
+        await this.loadCurrencies();
+        await this.loadDashboard();
+        await this.updateClientDropdowns();
+        await this.updateSupplierDropdowns();
     }
 
     showMainApp() {
@@ -314,12 +373,11 @@ class AccountingApp {
     }
 
     updateUserDisplay() {
-        const session = storage.getCurrentSession();
-        if (session) {
+        if (this.currentUser) {
             const userDisplay = document.getElementById('userDisplay');
             const logoutBtn = document.getElementById('logoutBtn');
             if (userDisplay) {
-                userDisplay.innerHTML = `👤 ${session.name} (${session.role})`;
+                userDisplay.innerHTML = `👤 ${this.currentUser.name} (${this.currentUser.role})`;
             }
             if (logoutBtn) {
                 logoutBtn.addEventListener('click', () => this.handleLogout());
@@ -329,7 +387,7 @@ class AccountingApp {
 
     handleLogout() {
         if (confirm('Tizimdan chiqishni xohlaysizmi?')) {
-            storage.logout();
+            api.logout();
             location.reload();
         }
     }
@@ -514,57 +572,62 @@ class AccountingApp {
     }
 
     // DOCUMENTS (Hujjatlar)
-    loadDocuments() {
-        this.loadCompanyInfoForm();
-        this.updateDocumentClientDropdown();
-        this.updateDocumentInvoiceDropdown();
+    async loadDocuments() {
+        await this.loadCompanyInfoForm();
+        await this.updateDocumentClientDropdown();
+        await this.updateDocumentInvoiceDropdown();
         const dateField = document.getElementById('documentDate');
         if (dateField && !dateField.value) {
             dateField.value = new Date().toISOString().split('T')[0];
         }
         this.renderDocumentDynamicFields();
-        this.displaySavedDocuments();
+        await this.displaySavedDocuments();
         document.getElementById('documentPreviewSection').style.display = 'none';
     }
 
-    loadCompanyInfoForm() {
-        const info = storage.getCompanyInfo();
-        document.getElementById('companyLegalForm').value = info.legalForm || 'MChJ';
-        document.getElementById('companyName').value = info.name || '';
-        document.getElementById('companyStir').value = info.stir || '';
-        document.getElementById('companyOked').value = info.oked || '';
-        document.getElementById('companyAddress').value = info.address || '';
-        document.getElementById('companyPhone').value = info.phone || '';
-        document.getElementById('companyBankName').value = info.bankName || '';
-        document.getElementById('companyBankAccount').value = info.bankAccount || '';
-        document.getElementById('companyMfo').value = info.mfo || '';
-        document.getElementById('companyDirector').value = info.director || '';
-        document.getElementById('companyAccountant').value = info.accountant || '';
+    async loadCompanyInfoForm() {
+        const info = await api.getCompanyInfo();
+        document.getElementById('companyLegalForm').value = info.companyLegalForm || 'MChJ';
+        document.getElementById('companyName').value = info.companyName || '';
+        document.getElementById('companyStir').value = info.companyStir || '';
+        document.getElementById('companyOked').value = info.companyOked || '';
+        document.getElementById('companyAddress').value = info.companyAddress || '';
+        document.getElementById('companyPhone').value = info.companyPhone || '';
+        document.getElementById('companyBankName').value = info.companyBankName || '';
+        document.getElementById('companyBankAccount').value = info.companyBankAccount || '';
+        document.getElementById('companyMfo').value = info.companyMfo || '';
+        document.getElementById('companyDirector').value = info.companyDirector || '';
+        document.getElementById('companyAccountant').value = info.companyAccountant || '';
     }
 
-    handleSaveCompanyInfo(e) {
+    async handleSaveCompanyInfo(e) {
         e.preventDefault();
         const info = {
-            legalForm: document.getElementById('companyLegalForm').value,
-            name: document.getElementById('companyName').value.trim(),
-            stir: document.getElementById('companyStir').value.trim(),
-            oked: document.getElementById('companyOked').value.trim(),
-            address: document.getElementById('companyAddress').value.trim(),
-            phone: document.getElementById('companyPhone').value.trim(),
-            bankName: document.getElementById('companyBankName').value.trim(),
-            bankAccount: document.getElementById('companyBankAccount').value.trim(),
-            mfo: document.getElementById('companyMfo').value.trim(),
-            director: document.getElementById('companyDirector').value.trim(),
-            accountant: document.getElementById('companyAccountant').value.trim()
+            companyLegalForm: document.getElementById('companyLegalForm').value,
+            companyName: document.getElementById('companyName').value.trim(),
+            companyStir: document.getElementById('companyStir').value.trim(),
+            companyOked: document.getElementById('companyOked').value.trim(),
+            companyAddress: document.getElementById('companyAddress').value.trim(),
+            companyPhone: document.getElementById('companyPhone').value.trim(),
+            companyBankName: document.getElementById('companyBankName').value.trim(),
+            companyBankAccount: document.getElementById('companyBankAccount').value.trim(),
+            companyMfo: document.getElementById('companyMfo').value.trim(),
+            companyDirector: document.getElementById('companyDirector').value.trim(),
+            companyAccountant: document.getElementById('companyAccountant').value.trim()
         };
-        storage.updateCompanyInfo(info);
+        try {
+            await api.updateCompanyInfo(info);
+        } catch (err) {
+            this.showMessage('Saqlashda xato: ' + err.message, 'error');
+            return;
+        }
         this.showMessage('Korxona rekvizitlari saqlandi', 'success');
     }
 
-    updateDocumentClientDropdown() {
+    async updateDocumentClientDropdown() {
         const select = document.getElementById('documentClient');
         if (!select) return;
-        const clients = storage.getClients();
+        const clients = await api.getClients();
         const cur = select.value;
         select.innerHTML = '<option value="">-- Tanlang --</option>';
         clients.forEach(c => {
@@ -576,14 +639,15 @@ class AccountingApp {
         select.value = cur;
     }
 
-    updateDocumentInvoiceDropdown() {
+    async updateDocumentInvoiceDropdown() {
         const select = document.getElementById('documentInvoice');
         if (!select) return;
-        const invoices = storage.getInvoices();
+        const [invoices, clients] = await Promise.all([api.getInvoices(), api.getClients()]);
+        const clientMap = new Map(clients.map(c => [c.id, c]));
         const cur = select.value;
         select.innerHTML = '<option value="">-- Tanlang --</option>';
         invoices.forEach(inv => {
-            const client = storage.getClientById(inv.clientId);
+            const client = clientMap.get(inv.clientId);
             const opt = document.createElement('option');
             opt.value = inv.id;
             opt.textContent = `${inv.number} — ${client ? client.name : ''} (${this.formatNumber(inv.total)} ${inv.currency || "so'm"})`;
@@ -622,7 +686,7 @@ class AccountingApp {
         }
     }
 
-    handleGenerateDocument(e) {
+    async handleGenerateDocument(e) {
         e.preventDefault();
         const type = document.getElementById('documentType').value;
         if (!type) {
@@ -630,7 +694,13 @@ class AccountingApp {
             return;
         }
 
-        const company = storage.getCompanyInfo();
+        const companyInfo = await api.getCompanyInfo();
+        const company = {
+            legalForm: companyInfo.companyLegalForm, name: companyInfo.companyName, stir: companyInfo.companyStir,
+            oked: companyInfo.companyOked, address: companyInfo.companyAddress, phone: companyInfo.companyPhone,
+            bankName: companyInfo.companyBankName, bankAccount: companyInfo.companyBankAccount, mfo: companyInfo.companyMfo,
+            director: companyInfo.companyDirector, accountant: companyInfo.companyAccountant
+        };
         if (!company.name) {
             this.showMessage("Avval korxona rekvizitlarini to'ldiring", 'error');
             return;
@@ -638,19 +708,24 @@ class AccountingApp {
 
         const date = document.getElementById('documentDate').value || new Date().toISOString().split('T')[0];
         const clientId = document.getElementById('documentClient').value;
-        let effectiveClient = clientId ? storage.getClientById(clientId) : null;
         const invoiceId = document.getElementById('documentInvoice').value;
-        const invoice = invoiceId ? storage.getInvoiceById(invoiceId) : null;
+        const [clientById, invoice, products] = await Promise.all([
+            clientId ? api.getClientById(clientId).catch(() => null) : null,
+            invoiceId ? api.getInvoiceById(invoiceId).catch(() => null) : null,
+            api.getProducts()
+        ]);
+        let effectiveClient = clientById;
+        const productMap = new Map(products.map(p => [p.id, p]));
 
         let items = null;
         let currency = null;
         if (invoice) {
             items = (invoice.lineItems || []).map(li => {
-                const product = storage.getProductById(li.productId);
+                const product = productMap.get(li.productId);
                 return { name: product ? product.name : li.productId, quantity: li.quantity, price: li.price };
             });
             currency = invoice.currency;
-            if (!effectiveClient) effectiveClient = storage.getClientById(invoice.clientId);
+            if (!effectiveClient && invoice.clientId) effectiveClient = await api.getClientById(invoice.clientId).catch(() => null);
         }
 
         const number = `${type.toUpperCase()}-${Date.now()}`;
@@ -664,6 +739,7 @@ class AccountingApp {
             number,
             items,
             currency,
+            vatRate: (this.settings && this.settings.taxVAT) || 12,
             subject: document.getElementById('docContractSubject')?.value.trim(),
             amount: parseFloat(contractAmountField?.value) || parseFloat(cashAmountField?.value) || 0,
             term: document.getElementById('docContractTerm')?.value.trim(),
@@ -688,27 +764,34 @@ class AccountingApp {
         };
     }
 
-    handleSaveDocument() {
+    async handleSaveDocument() {
         if (!this.currentGeneratedDocument) {
             this.showMessage('Avval hujjatni shakllantiring', 'error');
             return;
         }
-        storage.addDocument(this.currentGeneratedDocument);
+        try {
+            await api.addDocument(this.currentGeneratedDocument);
+        } catch (err) {
+            this.showMessage('Saqlashda xato: ' + err.message, 'error');
+            return;
+        }
         this.showMessage('Hujjat saqlandi', 'success');
-        this.displaySavedDocuments();
+        await this.displaySavedDocuments();
     }
 
-    displaySavedDocuments() {
+    async displaySavedDocuments() {
         const container = document.getElementById('savedDocumentsList');
         if (!container) return;
-        const documents = storage.getDocuments().slice().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        const [documents, clients] = await Promise.all([api.getDocuments(), api.getClients()]);
+        documents.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        const clientMap = new Map(clients.map(c => [c.id, c]));
         container.innerHTML = '';
         if (documents.length === 0) {
             container.innerHTML = '<div class="empty-state"><p>Hali hujjat saqlanmagan</p></div>';
             return;
         }
         documents.forEach(doc => {
-            const client = doc.clientId ? storage.getClientById(doc.clientId) : null;
+            const client = doc.clientId ? clientMap.get(doc.clientId) : null;
             const item = document.createElement('div');
             item.className = 'list-item';
             item.innerHTML = `
@@ -724,8 +807,8 @@ class AccountingApp {
         });
     }
 
-    viewSavedDocument(id) {
-        const doc = storage.getDocumentById(id);
+    async viewSavedDocument(id) {
+        const doc = await api.getDocumentById(id).catch(() => null);
         if (!doc) return;
         document.getElementById('documentPreview').innerHTML = doc.html;
         const previewSection = document.getElementById('documentPreviewSection');
@@ -734,46 +817,52 @@ class AccountingApp {
         this.currentGeneratedDocument = doc;
     }
 
-    deleteSavedDocument(id) {
+    async deleteSavedDocument(id) {
         if (!confirm("Hujjatni o'chirishni tasdiqlaysizmi?")) return;
-        storage.deleteDocument(id);
-        this.displaySavedDocuments();
+        try {
+            await api.deleteDocument(id);
+        } catch (err) {
+            this.showMessage('O\'chirishda xato: ' + err.message, 'error');
+            return;
+        }
+        await this.displaySavedDocuments();
     }
 
     // PAYROLL
-    loadPayroll() {
+    async loadPayroll() {
         // initialize forms and lists
-        const invoiceDate = new Date().toISOString().split('T')[0];
-        const payrollPeriod = new Date().toISOString().slice(0,7);
-        document.getElementById('payrollPeriod').value = payrollPeriod;
         document.getElementById('employeeForm').reset();
         document.getElementById('payrollForm').reset();
+        document.getElementById('payrollPeriod').value = new Date().toISOString().slice(0, 7);
         document.getElementById('employeesList').innerHTML = '';
         document.getElementById('payrollTableBody').innerHTML = '';
-        this.displayEmployees();
-        this.displayPayrollRecords();
-        this.updateEmployeeDropdowns();
+        await this.displayEmployees();
+        await this.displayPayrollRecords();
+        await this.updateEmployeeDropdowns();
     }
 
-    handleAddEmployee(e) {
+    async handleAddEmployee(e) {
         e.preventDefault();
         const emp = {
-            id: Date.now().toString(),
             name: document.getElementById('employeeName').value.trim(),
             position: document.getElementById('employeePosition').value.trim(),
             salary: parseFloat(document.getElementById('employeeSalary').value) || 0,
-            taxRate: parseFloat(document.getElementById('employeeTaxRate').value) || 0,
-            createdAt: new Date().toISOString()
+            taxRate: parseFloat(document.getElementById('employeeTaxRate').value) || 0
         };
-        storage.addEmployee(emp);
+        try {
+            await api.addEmployee(emp);
+        } catch (err) {
+            this.showMessage('Xodim qo\'shishda xato: ' + err.message, 'error');
+            return;
+        }
         document.getElementById('employeeForm').reset();
-        this.displayEmployees();
-        this.updateEmployeeDropdowns();
+        await this.displayEmployees();
+        await this.updateEmployeeDropdowns();
         this.showMessage('Xodim qo\'shildi', 'success');
     }
 
-    displayEmployees() {
-        const employees = storage.getEmployees();
+    async displayEmployees() {
+        const employees = await api.getEmployees();
         const container = document.getElementById('employeesList');
         container.innerHTML = '';
         if (employees.length === 0) {
@@ -795,8 +884,8 @@ class AccountingApp {
         });
     }
 
-    updateEmployeeDropdowns() {
-        const employees = storage.getEmployees();
+    async updateEmployeeDropdowns() {
+        const employees = await api.getEmployees();
         const select = document.getElementById('payrollEmployee');
         if (!select) return;
         const current = select.value;
@@ -810,80 +899,41 @@ class AccountingApp {
         select.value = current;
     }
 
-    handleAddPayrollRecord(e) {
+    async handleAddPayrollRecord(e) {
         e.preventDefault();
         const employeeId = document.getElementById('payrollEmployee').value;
         const period = document.getElementById('payrollPeriod').value;
         const bonus = parseFloat(document.getElementById('payrollBonus').value) || 0;
         const deductions = parseFloat(document.getElementById('payrollDeductions').value) || 0;
         if (!employeeId) { this.showMessage('Iltimos, xodimni tanlang', 'error'); return; }
-        const emp = storage.getEmployeeById(employeeId);
-        if (!emp) { this.showMessage('Xodim topilmadi', 'error'); return; }
-        const settings = storage.getSettings();
-        const gross = (parseFloat(emp.salary) || 0) + bonus;
-        // JShDS (jismoniy shaxslardan daromad solig'i) - xodim maoshidan ushlanadi
-        const ndflRate = parseFloat(emp.taxRate) || 0;
-        const tax = gross * (ndflRate / 100);
-        // ISHV (ijtimoiy soliq) - ish beruvchi tomonidan qo'shimcha to'lanadi, xodim maoshidan ushlanmaydi
-        const socialTaxRate = parseFloat(settings.taxSSV) || 0;
-        const socialTax = gross * (socialTaxRate / 100);
-        const net = Math.max(0, gross - tax - deductions);
 
-        const record = {
-            id: Date.now().toString(),
-            employeeId,
-            period,
-            gross,
-            tax,
-            socialTax,
-            deductions,
-            net,
-            date: new Date().toISOString()
-        };
-        storage.addPayrollRecord(record);
-
-        // Create automatic expense transaction for the net salary payment
-        const transaction = {
-            id: Date.now().toString(),
-            date: new Date().toISOString(),
-            type: 'expense',
-            category: 'salaries',
-            description: `Ish haqi (netto): ${emp.name} (${period})`,
-            amount: net,
-            payrollRecordId: record.id,
-            status: 'completed'
-        };
-        storage.addTransaction(transaction);
-
-        // Employer's social tax (ISHV) is a separate budget payment, not part of employee's net pay
-        if (socialTax > 0) {
-            const socialTaxTransaction = {
-                date: new Date().toISOString(),
-                type: 'expense',
-                category: 'social_tax',
-                description: `Ijtimoiy soliq - ISHV (${socialTaxRate}%): ${emp.name} (${period})`,
-                amount: socialTax,
-                payrollRecordId: record.id,
-                status: 'completed'
-            };
-            storage.addTransaction(socialTaxTransaction);
+        // JShDS/ISHV ajratish, netto hisoblash va ikkita xarajat tranzaksiyasini yaratish serverda amalga oshadi
+        try {
+            await api.addPayrollRecord({ employeeId, period, bonus, deductions });
+        } catch (err) {
+            this.showMessage('Ish haqi yozuvida xato: ' + err.message, 'error');
+            return;
         }
 
         document.getElementById('payrollForm').reset();
-        this.displayPayrollRecords();
+        document.getElementById('payrollPeriod').value = period;
+        await this.displayPayrollRecords();
         this.showMessage('Ish haqi yozuvi va xarajat tranzaksiyasi saqlandi', 'success');
     }
 
-    displayPayrollRecords() {
-        const records = storage.getPayrollRecords().sort((a,b) => new Date(b.date) - new Date(a.date));
+    async displayPayrollRecords() {
+        const [records, employees] = await Promise.all([api.getPayroll(), api.getEmployees()]);
+        records.sort((a,b) => new Date(b.date) - new Date(a.date));
+        const empMap = new Map(employees.map(e => [e.id, e]));
         const tbody = document.getElementById('payrollTableBody');
         tbody.innerHTML = '';
         if (records.length === 0) {
             tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Hali yozuv mavjud emas</td></tr>';
+            this.displayPayrollSummary([]);
             return;
         }
         records.forEach(r => {
-            const emp = storage.getEmployeeById(r.employeeId);
+            const emp = empMap.get(r.employeeId);
             const row = document.createElement('tr');
             row.innerHTML = `
                 <td>${new Date(r.date).toLocaleDateString('uz-UZ')}</td>
@@ -897,12 +947,11 @@ class AccountingApp {
             tbody.appendChild(row);
         });
         // Display payroll summary
-        this.displayPayrollSummary();
+        this.displayPayrollSummary(records);
     }
 
-    displayPayrollSummary() {
-        const records = storage.getPayrollRecords();
-        if (records.length === 0) return;
+    displayPayrollSummary(records) {
+        if (!records || records.length === 0) return;
         
         const totalGross = records.reduce((s, r) => s + (r.gross || 0), 0);
         const totalTax = records.reduce((s, r) => s + (r.tax || 0), 0);
@@ -928,51 +977,61 @@ class AccountingApp {
         }
     }
 
-    deleteEmployee(empId) {
-        if (!storage.canDelete()) {
+    async deleteEmployee(empId) {
+        if (!this.canDelete()) {
             this.showMessage('Faqat menejeri va administratorlar o\'chira oladi', 'error');
             return;
         }
         if (!confirm('Xodimni o\'chirishni xohlaysizmi?')) return;
-        storage.deleteEmployee(empId);
-        this.displayEmployees();
-        this.updateEmployeeDropdowns();
+        try {
+            await api.deleteEmployee(empId);
+        } catch (err) {
+            this.showMessage('O\'chirishda xato: ' + err.message, 'error');
+            return;
+        }
+        await this.displayEmployees();
+        await this.updateEmployeeDropdowns();
         this.showMessage('Xodim o\'chirildi', 'success');
     }
 
-    deletePayrollRecord(id) {
-        if (!storage.canDelete()) {
+    async deletePayrollRecord(id) {
+        if (!this.canDelete()) {
             this.showMessage('Faqat menejeri va administratorlar o\'chira oladi', 'error');
             return;
         }
         if (!confirm('Yozuvni o\'chirishni xohlaysizmi?')) return;
-        storage.deletePayrollRecord(id);
-        this.displayPayrollRecords();
+        try {
+            await api.deletePayrollRecord(id);
+        } catch (err) {
+            this.showMessage('O\'chirishda xato: ' + err.message, 'error');
+            return;
+        }
+        await this.displayPayrollRecords();
         this.showMessage('Yozuv o\'chirildi', 'success');
     }
 
     // DASHBOARD
-    loadDashboard() {
-        const stats = storage.getStatistics();
-        
+    async loadDashboard() {
+        const [stats, products] = await Promise.all([api.getStatistics(), api.getProducts()]);
+
         document.getElementById('totalIncome').textContent = this.formatNumber(stats.totalIncome);
         document.getElementById('totalExpense').textContent = this.formatNumber(stats.totalExpense);
         document.getElementById('totalTax').textContent = this.formatNumber(stats.totalTax);
         document.getElementById('netProfit').textContent = this.formatNumber(stats.netProfit);
 
         // Inventory stats
-        const products = storage.getProducts();
         const totalValue = products.reduce((sum, p) => sum + (p.stock * p.purchasePrice), 0);
         const lowStockItems = products.filter(p => p.stock <= p.minStock && p.stock > 0).length;
 
         document.getElementById('dashboardInventoryValue').textContent = this.formatNumber(totalValue);
         document.getElementById('dashboardLowStock').textContent = lowStockItems;
 
-        this.displayRecentTransactions();
+        await this.displayRecentTransactions();
     }
 
-    displayRecentTransactions() {
-        const recent = storage.getRecentTransactions(5);
+    async displayRecentTransactions() {
+        const all = await api.getTransactions();
+        const recent = all.slice(0, 5);
         const tbody = document.getElementById('recentTableBody');
         tbody.innerHTML = '';
 
@@ -999,7 +1058,7 @@ class AccountingApp {
     }
 
     // CLIENTS
-    handleAddClient(e) {
+    async handleAddClient(e) {
         e.preventDefault();
 
         const client = {
@@ -1009,21 +1068,24 @@ class AccountingApp {
             address: document.getElementById('clientAddress').value
         };
 
-        storage.addClient(client);
-        
-        // Form ni tozalash
+        try {
+            await api.addClient(client);
+        } catch (err) {
+            this.showMessage('Mijoz qo\'shishda xato: ' + err.message, 'error');
+            return;
+        }
+
         document.getElementById('clientForm').reset();
-        
-        // Clientlarni yangilash
-        this.displayClients();
-        this.updateClientDropdowns();
-        this.updateSupplierDropdowns();
-        
+
+        await this.displayClients();
+        await this.updateClientDropdowns();
+        await this.updateSupplierDropdowns();
+
         this.showMessage('Mijoz muvaffaqiyatli qo\'shildi', 'success');
     }
 
-    displayClients() {
-        const clients = storage.getClients();
+    async displayClients() {
+        const clients = await api.getClients();
         const container = document.getElementById('clientsList');
         container.innerHTML = '';
 
@@ -1049,8 +1111,8 @@ class AccountingApp {
         });
     }
 
-    updateClientDropdowns() {
-        const clients = storage.getClients();
+    async updateClientDropdowns() {
+        const clients = await api.getClients();
         const transSelect = document.getElementById('transClient');
         const invoiceSelect = document.getElementById('invoiceClient');
         const transValue = transSelect ? transSelect.value : '';
@@ -1081,28 +1143,33 @@ class AccountingApp {
         if (invoiceSelect) invoiceSelect.value = invoiceValue;
     }
 
-    deleteClient(clientId) {
-        if (!storage.canDelete()) {
+    async deleteClient(clientId) {
+        if (!this.canDelete()) {
             this.showMessage('Faqat menejeri va administratorlar o\'chira oladi', 'error');
             return;
         }
         if (confirm('Ushbu mijozni o\'chirishga ishonch hosil qildingizmi?')) {
-            storage.deleteClient(clientId);
-            this.displayClients();
-            this.updateClientDropdowns();
+            try {
+                await api.deleteClient(clientId);
+            } catch (err) {
+                this.showMessage('O\'chirishda xato: ' + err.message, 'error');
+                return;
+            }
+            await this.displayClients();
+            await this.updateClientDropdowns();
             this.showMessage('Mijoz muvaffaqiyatli o\'chirildi', 'success');
         }
     }
 
-    editClient(clientId) {
-        const client = storage.getClientById(clientId);
+    async editClient(clientId) {
+        const client = await api.getClientById(clientId);
         if (client) {
             alert('Tahrirlash funktsiyasi tez orada qo\'shilinadi');
         }
     }
 
     // SUPPLIERS
-    handleAddSupplier(e) {
+    async handleAddSupplier(e) {
         e.preventDefault();
 
         const supplier = {
@@ -1113,20 +1180,23 @@ class AccountingApp {
             productType: document.getElementById('supplierProductType').value
         };
 
-        storage.addSupplier(supplier);
-        
-        // Form ni tozalash
+        try {
+            await api.addSupplier(supplier);
+        } catch (err) {
+            this.showMessage('Yetkazib beruvchi qo\'shishda xato: ' + err.message, 'error');
+            return;
+        }
+
         document.getElementById('supplierForm').reset();
-        
-        // Supplierlarni yangilash
-        this.displaySuppliers();
-        this.updateSupplierDropdowns();
-        
+
+        await this.displaySuppliers();
+        await this.updateSupplierDropdowns();
+
         this.showMessage('Yetkazib beruvchi muvaffaqiyatli qo\'shildi', 'success');
     }
 
-    displaySuppliers() {
-        const suppliers = storage.getSuppliers();
+    async displaySuppliers() {
+        const suppliers = await api.getSuppliers();
         const container = document.getElementById('suppliersList');
         container.innerHTML = '';
 
@@ -1153,58 +1223,63 @@ class AccountingApp {
         });
     }
 
-    updateSupplierDropdowns() {
-        const suppliers = storage.getSuppliers();
+    async updateSupplierDropdowns() {
+        const suppliers = await api.getSuppliers();
         const select = document.getElementById('transSupplier');
         const currentValue = select.value;
-        
+
         select.innerHTML = '<option value="">-- Tanlang --</option>';
-        
+
         suppliers.forEach(supplier => {
             const option = document.createElement('option');
             option.value = supplier.id;
             option.textContent = supplier.name;
             select.appendChild(option);
         });
-        
+
         select.value = currentValue;
     }
 
-    deleteSupplier(supplierId) {
-        if (!storage.canDelete()) {
+    async deleteSupplier(supplierId) {
+        if (!this.canDelete()) {
             this.showMessage('Faqat menejeri va administratorlar o\'chira oladi', 'error');
             return;
         }
         if (confirm('Ushbu yetkazib beruvchini o\'chirishga ishonch hosil qildingizmi?')) {
-            storage.deleteSupplier(supplierId);
-            this.displaySuppliers();
-            this.updateSupplierDropdowns();
+            try {
+                await api.deleteSupplier(supplierId);
+            } catch (err) {
+                this.showMessage('O\'chirishda xato: ' + err.message, 'error');
+                return;
+            }
+            await this.displaySuppliers();
+            await this.updateSupplierDropdowns();
             this.showMessage('Yetkazib beruvchi muvaffaqiyatli o\'chirildi', 'success');
         }
     }
 
-    editSupplier(supplierId) {
-        const supplier = storage.getSupplierById(supplierId);
+    async editSupplier(supplierId) {
+        const supplier = await api.getSupplierById(supplierId);
         if (supplier) {
             alert('Tahrirlash funktsiyasi tez orada qo\'shilinadi');
         }
     }
 
     // PRODUCTION
-    loadProduction() {
+    async loadProduction() {
         const today = new Date().toISOString().split('T')[0];
         document.getElementById('productionForm').reset();
         document.getElementById('productionDate').value = today;
         document.getElementById('materialUsageRows').innerHTML = '';
-        this.addProductionMaterialRow();
-        this.updateProductionDropdowns();
-        this.loadRecipeManagement();
-        this.displayProductionOrders();
-        this.updateProductionCostPreview();
+        await this.addProductionMaterialRow();
+        await this.updateProductionDropdowns();
+        await this.loadRecipeManagement();
+        await this.displayProductionOrders();
+        await this.updateProductionCostPreview();
     }
 
-    updateProductionDropdowns() {
-        const products = storage.getProducts();
+    async updateProductionDropdowns() {
+        const products = await api.getProducts();
 
         const productionSelect = document.getElementById('productionProduct');
         const recipeSelect = document.getElementById('productionRecipeSelect');
@@ -1226,7 +1301,7 @@ class AccountingApp {
         if (recipeSelect) {
             const currentValue = recipeSelect.value;
             recipeSelect.innerHTML = '<option value="">-- Tanlang --</option>';
-            const recipes = storage.getProductionRecipes();
+            const recipes = await api.getProductionRecipes();
             recipes.forEach(recipe => {
                 const option = document.createElement('option');
                 option.value = recipe.id;
@@ -1264,7 +1339,7 @@ class AccountingApp {
         });
     }
 
-    loadRecipeManagement() {
+    async loadRecipeManagement() {
         const recipeForm = document.getElementById('recipeForm');
         if (recipeForm) {
             recipeForm.reset();
@@ -1273,28 +1348,29 @@ class AccountingApp {
         if (container) {
             container.innerHTML = '';
         }
-        this.addRecipeMaterialRow();
-        this.displayProductionRecipes();
-        this.updateProductionDropdowns();
+        await this.addRecipeMaterialRow();
+        await this.displayProductionRecipes();
+        await this.updateProductionDropdowns();
     }
 
-    applySelectedRecipe() {
+    async applySelectedRecipe() {
         const recipeId = document.getElementById('productionRecipeSelect').value;
         if (!recipeId) {
-            this.updateProductionCostPreview();
+            await this.updateProductionCostPreview();
             return;
         }
 
-        const recipe = storage.getProductionRecipeById(recipeId);
+        const recipes = await api.getProductionRecipes();
+        const recipe = recipes.find(r => r.id === recipeId);
         if (!recipe) {
             this.showMessage('Tanlangan retsept topilmadi', 'error');
             return;
         }
 
-        this.loadRecipeIntoProductionForm(recipe);
+        await this.loadRecipeIntoProductionForm(recipe);
     }
 
-    loadRecipeIntoProductionForm(recipe) {
+    async loadRecipeIntoProductionForm(recipe) {
         const producedQuantity = parseInt(document.getElementById('productionQuantity').value, 10) || 1;
         const container = document.getElementById('materialUsageRows');
         container.innerHTML = '';
@@ -1304,24 +1380,26 @@ class AccountingApp {
             productionProduct.value = recipe.finishedProductId;
         }
 
-        recipe.materials.forEach(material => {
-            this.addProductionMaterialRow({
+        for (const material of recipe.materials) {
+            await this.addProductionMaterialRow({
                 productId: material.productId,
                 quantity: material.qtyPerUnit * producedQuantity
             });
-        });
+        }
 
-        this.updateProductionCostPreview();
+        await this.updateProductionCostPreview();
     }
 
-    updateProductionCostPreview() {
+    async updateProductionCostPreview() {
         const rows = Array.from(document.querySelectorAll('#materialUsageRows .material-row'));
+        const products = await api.getProducts();
+        const productMap = new Map(products.map(p => [p.id, p]));
         let totalCost = 0;
 
         rows.forEach(row => {
             const productId = row.querySelector('.material-product-select').value;
             const quantity = parseFloat(row.querySelector('.material-quantity').value) || 0;
-            const product = storage.getProductById(productId);
+            const product = productMap.get(productId);
             totalCost += (product ? product.purchasePrice : 0) * quantity;
         });
 
@@ -1332,7 +1410,7 @@ class AccountingApp {
         document.getElementById('productionUnitCostPreview').textContent = this.formatNumber(unitCost) + ' so\'m';
     }
 
-    addProductionMaterialRow(item = {}) {
+    async addProductionMaterialRow(item = {}) {
         const container = document.getElementById('materialUsageRows');
         const row = document.createElement('div');
         row.className = 'material-row';
@@ -1355,7 +1433,7 @@ class AccountingApp {
         `;
 
         container.appendChild(row);
-        this.updateProductionDropdowns();
+        await this.updateProductionDropdowns();
 
         const productSelect = row.querySelector('.material-product-select');
         const quantityInput = row.querySelector('.material-quantity');
@@ -1373,7 +1451,7 @@ class AccountingApp {
         });
     }
 
-    addRecipeMaterialRow(item = {}) {
+    async addRecipeMaterialRow(item = {}) {
         const container = document.getElementById('recipeMaterialRows');
         const row = document.createElement('div');
         row.className = 'material-row';
@@ -1396,7 +1474,7 @@ class AccountingApp {
         `;
 
         container.appendChild(row);
-        this.updateProductionDropdowns();
+        await this.updateProductionDropdowns();
 
         const productSelect = row.querySelector('.recipe-material-product-select');
         if (productSelect && item.productId) {
@@ -1408,7 +1486,7 @@ class AccountingApp {
         });
     }
 
-    handleSaveRecipe(e) {
+    async handleSaveRecipe(e) {
         e.preventDefault();
 
         const finishedProductId = document.getElementById('recipeProductSelect').value;
@@ -1441,21 +1519,20 @@ class AccountingApp {
             return;
         }
 
-        const recipe = {
-            finishedProductId,
-            name: recipeName,
-            materials
-        };
+        try {
+            await api.addProductionRecipe({ finishedProductId, name: recipeName, materials });
+        } catch (err) {
+            this.showMessage('Retseptni saqlashda xato: ' + err.message, 'error');
+            return;
+        }
 
-        storage.addProductionRecipe(recipe);
         this.showMessage('Retsept saqlandi', 'success');
-        this.loadRecipeManagement();
-        this.applySelectedRecipe();
+        await this.loadRecipeManagement();
+        await this.applySelectedRecipe();
     }
 
-    displayProductionRecipes() {
-        const recipes = storage.getProductionRecipes();
-        const products = storage.getProducts();
+    async displayProductionRecipes() {
+        const [recipes, products] = await Promise.all([api.getProductionRecipes(), api.getProducts()]);
         const tbody = document.getElementById('recipeTableBody');
         tbody.innerHTML = '';
 
@@ -1484,8 +1561,8 @@ class AccountingApp {
         });
     }
 
-    deleteProductionRecipe(recipeId) {
-        if (!storage.canDelete()) {
+    async deleteProductionRecipe(recipeId) {
+        if (!this.canDelete()) {
             this.showMessage('Faqat menejeri va administratorlar o\'chira oladi', 'error');
             return;
         }
@@ -1493,19 +1570,24 @@ class AccountingApp {
             return;
         }
 
-        storage.deleteProductionRecipe(recipeId);
-        this.loadRecipeManagement();
+        try {
+            await api.deleteProductionRecipe(recipeId);
+        } catch (err) {
+            this.showMessage('O\'chirishda xato: ' + err.message, 'error');
+            return;
+        }
+        await this.loadRecipeManagement();
         this.showMessage('Retsept o\'chirildi', 'success');
     }
 
-    handleAddProductionOrder(e) {
+    async handleAddProductionOrder(e) {
         e.preventDefault();
 
         const finishedProductId = document.getElementById('productionProduct').value;
         const producedQuantity = parseInt(document.getElementById('productionQuantity').value, 10);
         const date = document.getElementById('productionDate').value;
         const description = document.getElementById('productionDescription').value;
-        const rows = Array.from(document.querySelectorAll('.material-row'));
+        const rows = Array.from(document.querySelectorAll('#materialUsageRows .material-row'));
 
         if (!finishedProductId) {
             this.showMessage('Iltimos, ishlab chiqariladigan mahsulotni tanlang', 'error');
@@ -1533,55 +1615,29 @@ class AccountingApp {
             return;
         }
 
-        const productMap = storage.getProducts().reduce((map, product) => {
-            map[product.id] = product;
-            return map;
-        }, {});
-
-        for (const material of materials) {
-            const product = productMap[material.productId];
-            if (!product) {
-                this.showMessage('Materiallar ro\'yxatidagi mahsulot topilmadi', 'error');
-                return;
-            }
-            if (product.stock < material.quantity) {
-                this.showMessage(`Material "${product.name}" uchun zahira yetarli emas. Hozirgi zahira: ${product.stock}`, 'error');
-                return;
-            }
-        }
-
         const recipeId = document.getElementById('productionRecipeSelect').value;
-        const productionCost = this.getProductionCost({ materials });
-        const unitCost = producedQuantity > 0 ? productionCost / producedQuantity : 0;
 
-        const order = {
-            finishedProductId,
-            producedQuantity,
-            materials,
-            date,
-            description,
-            recipeId,
-            productionCost,
-            materialCostPerUnit: unitCost
-        };
-
-        const result = storage.addProductionOrder(order);
-        if (!result) {
-            this.showMessage('Ishlab chiqarish buyurtmasini saqlashda xato yuz berdi', 'error');
+        // Zahira tekshiruvi, tannarx hisoblash va materiallar/mahsulot zahirasini yangilash serverda amalga oshadi
+        try {
+            await api.addProductionOrder({ finishedProductId, producedQuantity, materials, date, description, recipeId });
+        } catch (err) {
+            this.showMessage('Ishlab chiqarish buyurtmasini saqlashda xato: ' + err.message, 'error');
             return;
         }
 
         document.getElementById('productionForm').reset();
         document.getElementById('materialUsageRows').innerHTML = '';
-        this.loadProduction();
-        this.loadInventory();
-        this.loadDashboard();
+        await this.loadProduction();
+        await this.loadInventory();
+        await this.loadDashboard();
 
         this.showMessage('Ishlab chiqarish buyurtmasi muvaffaqiyatli qo\'shildi', 'success');
     }
 
-    displayProductionOrders() {
-        const orders = storage.getProductionOrders().sort((a, b) => new Date(b.date) - new Date(a.date));
+    async displayProductionOrders() {
+        const [orders, products] = await Promise.all([api.getProductionOrders(), api.getProducts()]);
+        orders.sort((a, b) => new Date(b.date) - new Date(a.date));
+        const productMap = new Map(products.map(p => [p.id, p]));
         const tbody = document.getElementById('productionTableBody');
         tbody.innerHTML = '';
 
@@ -1591,11 +1647,11 @@ class AccountingApp {
         }
 
         orders.forEach(order => {
-            const finishedProduct = storage.getProductById(order.finishedProductId);
+            const finishedProduct = productMap.get(order.finishedProductId);
             const productName = finishedProduct ? finishedProduct.name : 'Noma\'lum';
-            const cost = parseFloat(order.productionCost || this.getProductionCost(order));
+            const cost = parseFloat(order.productionCost || 0);
             const materialSummary = order.materials.map(item => {
-                const product = storage.getProductById(item.productId);
+                const product = productMap.get(item.productId);
                 return `${product ? product.name : 'Noma\'lum'} (${item.quantity})`;
             }).join(', ');
 
@@ -1614,15 +1670,8 @@ class AccountingApp {
         });
     }
 
-    getProductionCost(order) {
-        return order.materials.reduce((sum, item) => {
-            const product = storage.getProductById(item.productId);
-            return sum + ((product ? product.purchasePrice : 0) * item.quantity);
-        }, 0);
-    }
-
-    deleteProductionOrder(orderId) {
-        if (!storage.canDelete()) {
+    async deleteProductionOrder(orderId) {
+        if (!this.canDelete()) {
             this.showMessage('Faqat menejeri va administratorlar o\'chira oladi', 'error');
             return;
         }
@@ -1630,34 +1679,22 @@ class AccountingApp {
             return;
         }
 
-        const order = storage.getProductionOrderById(orderId);
-        if (!order) {
-            this.showMessage('Buyurtma topilmadi', 'error');
+        // Materiallar/mahsulot zahirasini tiklash serverda amalga oshadi
+        try {
+            await api.deleteProductionOrder(orderId);
+        } catch (err) {
+            this.showMessage('O\'chirishda xato: ' + err.message, 'error');
             return;
         }
 
-        const products = storage.getProducts();
-        const finishedProduct = products.find(p => p.id === order.finishedProductId);
-        if (finishedProduct) {
-            finishedProduct.stock = Math.max(0, finishedProduct.stock - order.producedQuantity);
-        }
-        order.materials.forEach(item => {
-            const material = products.find(p => p.id === item.productId);
-            if (material) {
-                material.stock += item.quantity;
-            }
-        });
-        storage.set('products', products);
-        storage.deleteProductionOrder(orderId);
-
-        this.loadProduction();
-        this.loadInventory();
-        this.loadDashboard();
+        await this.loadProduction();
+        await this.loadInventory();
+        await this.loadDashboard();
         this.showMessage('Ishlab chiqarish buyurtmasi o\'chirildi va zahira tiklandi', 'success');
     }
 
     // TRANSACTIONS
-    handleAddTransaction(e) {
+    async handleAddTransaction(e) {
         e.preventDefault();
         const date = document.getElementById('transDate').value;
         const clientId = document.getElementById('transClient').value;
@@ -1673,79 +1710,47 @@ class AccountingApp {
             return;
         }
 
-        const submitLocal = async () => {
-            // If server API is enabled, call it
-            if (api.useServer) {
-                try {
-                    // Try to fetch rate if currency set and not base
-                    let rate = null;
-                    if (currency) {
-                        try {
-                            const base = localStorage.getItem('BASE_CURRENCY') || 'UZS';
-                            const rateObj = await api.getExchangeRate(currency, base);
-                            rate = rateObj?.rate || 1;
-                        } catch (e) {
-                            rate = 1;
-                        }
-                    } else {
-                        rate = 1;
-                    }
+        try {
+            await api.addTransaction({ date, clientId, supplierId, type, category, amount, description, currency: currency || undefined });
+        } catch (err) {
+            this.showMessage('Tranzaksiya qo\'shishda xato: ' + err.message, 'error');
+            return;
+        }
 
-                    const payload = { date, clientId, supplierId, type, category, amount, description, currency: currency || undefined, rate };
-                    await api.addTransaction(payload);
-                } catch (err) {
-                    console.error('Server transaction error:', err);
-                    this.showMessage('Serverga yuborishda xato yuz berdi, offline saqlanmoqda', 'error');
-                    storage.addTransaction({ date, clientId, supplierId, type, category, amount, description, currency, rate: rate || 1, amount_base: (amount * (rate || 1)), createdAt: new Date().toISOString() });
-                }
-            } else {
-                // Offline/localstorage path: compute amount_base if possible
-                let rate = 1;
-                if (currency && api.useServer) {
-                    try {
-                        const base = localStorage.getItem('BASE_CURRENCY') || 'UZS';
-                        const rateObj = await api.getExchangeRate(currency, base);
-                        rate = rateObj?.rate || 1;
-                    } catch (e) {
-                        rate = 1;
-                    }
-                }
-                storage.addTransaction({ id: Date.now().toString(), date, clientId, supplierId, type, category, amount, description, currency, rate, amount_base: amount * rate, createdAt: new Date().toISOString() });
-            }
-
-            // Reset form and update UI
-            document.getElementById('transactionForm').reset();
-            document.getElementById('transDate').value = new Date().toISOString().split('T')[0];
-            this.displayTransactions();
-            this.loadDashboard();
-            this.showMessage('Tranzaksiya muvaffaqiyatli qo\'shildi', 'success');
-        };
-
-        submitLocal();
+        document.getElementById('transactionForm').reset();
+        document.getElementById('transDate').value = new Date().toISOString().split('T')[0];
+        await this.displayTransactions();
+        await this.loadDashboard();
+        this.showMessage('Tranzaksiya muvaffaqiyatli qo\'shildi', 'success');
     }
 
-    displayTransactions() {
-        const transactions = storage.getTransactions()
-            .sort((a, b) => new Date(b.date) - new Date(a.date));
-        
+    // clients/suppliers ro'yxatini bir marta olib, xaridor/yetkazib beruvchi nomini tez qidirish uchun lug'at yasaydi
+    async buildPartyLookup() {
+        const [clients, suppliers] = await Promise.all([api.getClients(), api.getSuppliers()]);
+        const clientMap = new Map(clients.map(c => [c.id, c]));
+        const supplierMap = new Map(suppliers.map(s => [s.id, s]));
+        return { clientMap, supplierMap };
+    }
+
+    renderTransactionRows(transactions, clientMap, supplierMap, emptyMessage) {
         const tbody = document.getElementById('transactionsTableBody');
         tbody.innerHTML = '';
 
         if (transactions.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Hali tranzaksiya mavjud emas</td></tr>';
+            tbody.innerHTML = `<tr><td colspan="7" class="empty-state">${emptyMessage}</td></tr>`;
             return;
         }
 
         transactions.forEach(trans => {
-            const client = storage.getClientById(trans.clientId);
-            const supplier = storage.getSupplierById(trans.supplierId);
+            const client = clientMap.get(trans.clientId);
+            const supplier = supplierMap.get(trans.supplierId);
             const row = document.createElement('tr');
-            
+
             const typeLabel = trans.type === 'income' ? 'Daromad' : 'Chiqim';
             const typeColor = trans.type === 'income' ? '#10b981' : '#ef4444';
             const amountDisplay = trans.currency ? this.formatCurrency(trans.amount, trans.currency) : `${this.formatNumber(trans.amount)} so'm`;
             const baseDisplay = trans.amount_base ? `<div style="font-size:0.8rem;color:#666;">(${this.formatNumber(trans.amount_base)} so'm bazada)</div>` : '';
-            
+
             row.innerHTML = `
                 <td>${new Date(trans.date).toLocaleDateString('uz-UZ')}</td>
                 <td>${client ? client.name : 'Noma\'lum'}</td>
@@ -1761,13 +1766,20 @@ class AccountingApp {
         });
     }
 
-    filterTransactions() {
+    async displayTransactions() {
+        const [transactions, { clientMap, supplierMap }] = await Promise.all([api.getTransactions(), this.buildPartyLookup()]);
+        transactions.sort((a, b) => new Date(b.date) - new Date(a.date));
+        this.renderTransactionRows(transactions, clientMap, supplierMap, 'Hali tranzaksiya mavjud emas');
+    }
+
+    async filterTransactions() {
         const fromDate = document.getElementById('filterFromDate').value;
         const toDate = document.getElementById('filterToDate').value;
         const type = document.getElementById('filterType').value;
         const search = document.getElementById('filterSearch').value.trim().toLowerCase();
 
-        let transactions = storage.getTransactions();
+        const [allTransactions, { clientMap, supplierMap }] = await Promise.all([api.getTransactions(), this.buildPartyLookup()]);
+        let transactions = allTransactions;
 
         if (fromDate) {
             transactions = transactions.filter(t => new Date(t.date) >= new Date(fromDate));
@@ -1780,8 +1792,8 @@ class AccountingApp {
         }
         if (search) {
             transactions = transactions.filter(t => {
-                const clientName = storage.getClientById(t.clientId)?.name || '';
-                const supplierName = storage.getSupplierById(t.supplierId)?.name || '';
+                const clientName = clientMap.get(t.clientId)?.name || '';
+                const supplierName = supplierMap.get(t.supplierId)?.name || '';
                 const description = (t.description || '').toLowerCase();
                 const currency = (t.currency || '').toLowerCase();
                 return clientName.toLowerCase().includes(search)
@@ -1791,56 +1803,30 @@ class AccountingApp {
             });
         }
 
-        transactions = transactions.sort((a, b) => new Date(b.date) - new Date(a.date));
-
-        const tbody = document.getElementById('transactionsTableBody');
-        tbody.innerHTML = '';
-
-        if (transactions.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Shartga mos tranzaksiya topilmadi</td></tr>';
-            return;
-        }
-
-        transactions.forEach(trans => {
-            const client = storage.getClientById(trans.clientId);
-            const supplier = storage.getSupplierById(trans.supplierId);
-            const row = document.createElement('tr');
-            
-            const typeLabel = trans.type === 'income' ? 'Daromad' : 'Chiqim';
-            const typeColor = trans.type === 'income' ? '#10b981' : '#ef4444';
-            const amountDisplay = trans.currency ? this.formatCurrency(trans.amount, trans.currency) : `${this.formatNumber(trans.amount)} so'm`;
-            const baseDisplay = trans.amount_base ? `<div style="font-size:0.8rem;color:#666;">(${this.formatNumber(trans.amount_base)} so'm bazada)</div>` : '';
-            
-            row.innerHTML = `
-                <td>${new Date(trans.date).toLocaleDateString('uz-UZ')}</td>
-                <td>${client ? client.name : 'Noma\'lum'}</td>
-                <td>${supplier ? supplier.name : '-'}</td>
-                <td>${this.getCategoryLabel(trans.category)}</td>
-                <td><span style="background: ${typeColor}; color: white; padding: 0.25rem 0.75rem; border-radius: 0.25rem; font-size: 0.8rem;">${typeLabel}</span></td>
-                <td><strong>${amountDisplay}</strong>${baseDisplay}</td>
-                <td>
-                    <button class="btn btn-danger" onclick="app.deleteTransaction('${trans.id}')" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;">O'chirish</button>
-                </td>
-            `;
-            tbody.appendChild(row);
-        });
+        transactions.sort((a, b) => new Date(b.date) - new Date(a.date));
+        this.renderTransactionRows(transactions, clientMap, supplierMap, 'Shartga mos tranzaksiya topilmadi');
     }
 
-    deleteTransaction(transId) {
-        if (!storage.canDelete()) {
+    async deleteTransaction(transId) {
+        if (!this.canDelete()) {
             this.showMessage('Faqat menejeri va administratorlar o\'chira oladi', 'error');
             return;
         }
         if (confirm('Ushbu tranzaksiyani o\'chirishga ishonch hosil qildingizmi?')) {
-            storage.deleteTransaction(transId);
-            this.displayTransactions();
-            this.loadDashboard();
+            try {
+                await api.deleteTransaction(transId);
+            } catch (err) {
+                this.showMessage('O\'chirishda xato: ' + err.message, 'error');
+                return;
+            }
+            await this.displayTransactions();
+            await this.loadDashboard();
             this.showMessage('Tranzaksiya muvaffaqiyatli o\'chirildi', 'success');
         }
     }
 
     // SALES
-    loadSales() {
+    async loadSales() {
         const invoiceNumberField = document.getElementById('invoiceNumber');
         if (invoiceNumberField) {
             invoiceNumberField.value = `INV-${Date.now()}`;
@@ -1852,8 +1838,7 @@ class AccountingApp {
             invoiceDate.value = today;
         }
 
-        const settings = storage.getSettings();
-        const defaultCurrency = settings.defaultCurrency || 'UZS';
+        const defaultCurrency = (this.settings && this.settings.defaultCurrency) || 'UZS';
         const invoiceCurrency = document.getElementById('invoiceCurrency');
         if (invoiceCurrency) {
             invoiceCurrency.value = defaultCurrency;
@@ -1863,15 +1848,14 @@ class AccountingApp {
         if (rowContainer) {
             rowContainer.innerHTML = '';
         }
-        this.addInvoiceLineRow();
-        this.updateClientDropdowns();
-        this.updateInvoiceDropdowns();
-        this.displayInvoices();
+        await this.addInvoiceLineRow();
+        await this.updateClientDropdowns();
+        await this.displayInvoices();
         this.updateInvoiceTotalPreview();
     }
 
-    updateInvoiceDropdowns() {
-        const products = storage.getProducts();
+    async updateInvoiceDropdowns() {
+        const products = await api.getProducts();
         const selects = document.querySelectorAll('.invoice-product-select');
 
         selects.forEach(select => {
@@ -1887,7 +1871,7 @@ class AccountingApp {
         });
     }
 
-    addInvoiceLineRow(item = {}) {
+    async addInvoiceLineRow(item = {}) {
         const container = document.getElementById('invoiceLineRows');
         const row = document.createElement('div');
         row.className = 'material-row';
@@ -1913,7 +1897,7 @@ class AccountingApp {
             </div>
         `;
         container.appendChild(row);
-        this.updateInvoiceDropdowns();
+        await this.updateInvoiceDropdowns();
 
         const productSelect = row.querySelector('.invoice-product-select');
         const quantityInput = row.querySelector('.invoice-product-quantity');
@@ -1927,8 +1911,8 @@ class AccountingApp {
         }
 
         const updatePreview = () => this.updateInvoiceTotalPreview();
-        productSelect.addEventListener('change', () => {
-            const product = storage.getProductById(productSelect.value);
+        productSelect.addEventListener('change', async () => {
+            const product = await api.getProductById(productSelect.value).catch(() => null);
             if (product) {
                 priceInput.value = product.sellingPrice || 0;
             }
@@ -1945,7 +1929,7 @@ class AccountingApp {
 
     // Soddalashtirilgan rejimdagi korxonalar QQS to'lovchisi emas
     getInvoiceVatRate() {
-        const settings = storage.getSettings();
+        const settings = this.settings || {};
         return settings.taxRegime === 'soddalashtirilgan' ? 0 : (parseFloat(settings.taxVAT) || 0);
     }
 
@@ -1967,7 +1951,7 @@ class AccountingApp {
             : fmt(total);
     }
 
-    handleAddInvoice(e) {
+    async handleAddInvoice(e) {
         e.preventDefault();
 
         const number = document.getElementById('invoiceNumber').value;
@@ -1982,9 +1966,6 @@ class AccountingApp {
         }
 
         const lineItems = [];
-        let subtotal = 0;
-        const products = storage.getProducts();
-
         for (const row of rows) {
             const productId = row.querySelector('.invoice-product-select').value;
             const quantity = parseFloat(row.querySelector('.invoice-product-quantity').value) || 0;
@@ -1993,107 +1974,37 @@ class AccountingApp {
                 this.showMessage('Iltimos, barcha mahsulot sarlavhalarini to\'ldiring', 'error');
                 return;
             }
-            const product = products.find(p => p.id === productId);
-            if (!product) {
-                this.showMessage('Tanlangan mahsulot topilmadi', 'error');
-                return;
-            }
-            if (product.stock < quantity) {
-                this.showMessage(`${product.name} uchun zahira yetarli emas. Hozirgi zahira: ${product.stock}`, 'error');
-                return;
-            }
             lineItems.push({ productId, quantity, price });
-            subtotal += quantity * price;
+        }
+        if (lineItems.length === 0) {
+            this.showMessage('Iltimos, kamida bitta mahsulot qo\'shing', 'error');
+            return;
         }
 
         const invoiceCurrency = document.getElementById('invoiceCurrency')?.value || '';
-        const vatRate = this.getInvoiceVatRate();
-        const vatAmount = subtotal * (vatRate / 100);
-        const total = subtotal + vatAmount;
 
-        const invoice = {
-            id: Date.now().toString(),
-            number,
-            date,
-            clientId,
-            description,
-            lineItems,
-            subtotal,
-            vatRate,
-            vatAmount,
-            total,
-            currency: invoiceCurrency || undefined,
-            status: 'Yaratildi'
-        };
-
-        storage.addInvoice(invoice);
-
-        // Prepare transaction payload including currency and base amount
-        (async () => {
-            let rate = 1;
-            const base = localStorage.getItem('BASE_CURRENCY') || 'UZS';
-            if (invoiceCurrency && invoiceCurrency !== base) {
-                if (api.useServer) {
-                    try {
-                        const rateObj = await api.getExchangeRate(invoiceCurrency, base);
-                        rate = rateObj?.rate || 1;
-                    } catch (e) {
-                        rate = 1;
-                    }
-                } else {
-                    // try local storage rates
-                    const rates = storage.getExchangeRates();
-                    const found = (rates || []).slice().reverse().find(r => (r.from_currency === invoiceCurrency || r.from === invoiceCurrency) && (r.to_currency === base || r.to === base));
-                    if (found) rate = found.rate;
-                }
-            }
-
-            const transPayload = {
-                date,
-                clientId,
-                supplierId: '',
-                type: 'income',
-                category: 'sales',
-                amount: total,
-                currency: invoiceCurrency || undefined,
-                rate,
-                amount_base: total * (rate || 1),
-                description: `Invoice ${number}: ${description}`
-            };
-
-            if (api.useServer) {
-                try {
-                    await api.addTransaction(transPayload);
-                } catch (err) {
-                    console.warn('Server transaction failed, saving local copy', err);
-                    storage.addTransaction(Object.assign({ id: Date.now().toString(), createdAt: new Date().toISOString() }, transPayload));
-                }
-            } else {
-                storage.addTransaction(Object.assign({ id: Date.now().toString(), createdAt: new Date().toISOString() }, transPayload));
-            }
-        })();
-
-        const productsToUpdate = storage.getProducts();
-        lineItems.forEach(item => {
-            const product = productsToUpdate.find(p => p.id === item.productId);
-            if (product) {
-                product.stock = Math.max(0, product.stock - item.quantity);
-            }
-        });
-        storage.set('products', productsToUpdate);
+        // QQS hisoblash, zahirani kamaytirish va daromad tranzaksiyasini yaratish serverda amalga oshadi
+        try {
+            await api.addInvoice({ number, date, clientId, description, lineItems, currency: invoiceCurrency || undefined });
+        } catch (err) {
+            this.showMessage('Invoice yaratishda xato: ' + err.message, 'error');
+            return;
+        }
 
         document.getElementById('invoiceForm').reset();
         document.getElementById('invoiceLineRows').innerHTML = '';
-        this.addInvoiceLineRow();
-        this.loadDashboard();
-        this.loadInventory();
-        this.displayInvoices();
-        this.updateClientDropdowns();
+        await this.addInvoiceLineRow();
+        await this.loadDashboard();
+        await this.loadInventory();
+        await this.displayInvoices();
+        await this.updateClientDropdowns();
         this.showMessage('Invoice muvaffaqiyatli yaratildi', 'success');
     }
 
-    displayInvoices() {
-        const invoices = storage.getInvoices().sort((a, b) => new Date(b.date) - new Date(a.date));
+    async displayInvoices() {
+        const [invoices, clients] = await Promise.all([api.getInvoices(), api.getClients()]);
+        invoices.sort((a, b) => new Date(b.date) - new Date(a.date));
+        const clientMap = new Map(clients.map(c => [c.id, c]));
         const tbody = document.getElementById('invoiceTableBody');
         tbody.innerHTML = '';
 
@@ -2103,7 +2014,7 @@ class AccountingApp {
         }
 
         invoices.forEach(invoice => {
-            const client = storage.getClientById(invoice.clientId);
+            const client = clientMap.get(invoice.clientId);
             const totalDisplay = invoice.currency ? this.formatCurrency(invoice.total, invoice.currency) : `${this.formatNumber(invoice.total)} so'm`;
             const row = document.createElement('tr');
             row.innerHTML = `
@@ -2121,16 +2032,20 @@ class AccountingApp {
         });
     }
 
-    exportInvoice(invoiceId) {
-        const invoice = storage.getInvoiceById(invoiceId);
+    async exportInvoice(invoiceId) {
+        const invoice = await api.getInvoiceById(invoiceId).catch(() => null);
         if (!invoice) {
             this.showMessage('Invoice topilmadi', 'error');
             return;
         }
 
-        const client = storage.getClientById(invoice.clientId);
+        const [client, products] = await Promise.all([
+            invoice.clientId ? api.getClientById(invoice.clientId).catch(() => null) : null,
+            api.getProducts()
+        ]);
+        const productMap = new Map(products.map(p => [p.id, p]));
         const linesHtml = invoice.lineItems.map(item => {
-            const product = storage.getProductById(item.productId);
+            const product = productMap.get(item.productId);
             return `<tr><td>${product ? product.name : 'Noma\'lum'}</td><td>${item.quantity}</td><td>${this.formatNumber(item.price)} so'm</td><td>${this.formatNumber(item.quantity * item.price)} so'm</td></tr>`;
         }).join('');
 
@@ -2171,16 +2086,21 @@ ${vatRows}
         this.showMessage('Invoice eksport qilindi', 'success');
     }
 
-    deleteInvoice(invoiceId) {
-        if (!storage.canDelete()) {
+    async deleteInvoice(invoiceId) {
+        if (!this.canDelete()) {
             this.showMessage('Faqat menejeri va administratorlar o\'chira oladi', 'error');
             return;
         }
         if (!confirm('Ushbu invoice o\'chirilsinmi?')) {
             return;
         }
-        storage.deleteInvoice(invoiceId);
-        this.displayInvoices();
+        try {
+            await api.deleteInvoice(invoiceId);
+        } catch (err) {
+            this.showMessage('O\'chirishda xato: ' + err.message, 'error');
+            return;
+        }
+        await this.displayInvoices();
         this.showMessage('Invoice o\'chirildi', 'success');
     }
 
@@ -2202,7 +2122,7 @@ ${vatRows}
         }
     }
 
-    generateReport() {
+    async generateReport() {
         const period = document.querySelector('input[name="period"]:checked').value;
         let fromDate, toDate;
 
@@ -2223,12 +2143,16 @@ ${vatRows}
             toDate = new Date(document.getElementById('reportToDate').value);
         }
 
-        const transactions = storage.getTransactionsByPeriod(
-            fromDate.toISOString().split('T')[0],
-            toDate.toISOString().split('T')[0]
-        );
+        const inPeriod = (dateStr) => {
+            const d = new Date(dateStr);
+            return d >= fromDate && d <= toDate;
+        };
 
-        const settings = storage.getSettings();
+        const [allTransactions, allProductionOrders, settings] = await Promise.all([
+            api.getTransactions(), api.getProductionOrders(), api.getSettings()
+        ]);
+        const transactions = allTransactions.filter(t => inPeriod(t.date));
+        this.settings = settings;
 
         // Hisoblashlar
         const incomeTransactions = transactions.filter(t => t.type === 'income');
@@ -2339,10 +2263,9 @@ ${vatRows}
             `;
         });
 
-        const productionOrders = storage.getProductionOrdersByPeriod(
-            fromDate.toISOString().split('T')[0],
-            toDate.toISOString().split('T')[0]
-        );
+        const productionOrders = allProductionOrders.filter(o => inPeriod(o.date));
+        const productsForOrders = await api.getProducts();
+        const productMapForOrders = new Map(productsForOrders.map(p => [p.id, p]));
         const totalProductionCost = productionOrders.reduce((sum, order) => sum + parseFloat(order.productionCost || 0), 0);
         const totalAfterProduction = netProfit - totalProductionCost;
 
@@ -2377,7 +2300,7 @@ ${vatRows}
         `;
 
         productionOrders.forEach(order => {
-            const product = storage.getProductById(order.finishedProductId);
+            const product = productMapForOrders.get(order.finishedProductId);
             html += `
                 <tr>
                     <td>${new Date(order.date).toLocaleDateString('uz-UZ')}</td>
@@ -2458,9 +2381,9 @@ ${vatRows}
     }
 
     // SETTINGS
-    loadSettings() {
-        const settings = storage.getSettings();
-        const currencies = storage.getCurrencies();
+    async loadSettings() {
+        const [settings, currencies] = await Promise.all([api.getSettings(), api.getCurrencies()]);
+        this.settings = settings;
         const defaultCurrencySelect = document.getElementById('defaultCurrency');
 
         document.getElementById('taxRegime').value = settings.taxRegime || 'umumiy';
@@ -2485,8 +2408,13 @@ ${vatRows}
         }
     }
 
-    handleSaveSettings(e) {
+    async handleSaveSettings(e) {
         e.preventDefault();
+
+        if (!this.canEditSettings()) {
+            this.showMessage('Faqat administrator sozlamalarni o\'zgartira oladi', 'error');
+            return;
+        }
 
         const settings = {
             taxRegime: document.getElementById('taxRegime').value,
@@ -2501,8 +2429,13 @@ ${vatRows}
             showCurrencySymbol: document.getElementById('showCurrencySymbol')?.checked
         };
 
-        storage.updateSettings(settings);
-        this.loadCurrencies();
+        try {
+            await api.updateSettings(settings);
+        } catch (err) {
+            this.showMessage('Sozlamalarni saqlashda xato: ' + err.message, 'error');
+            return;
+        }
+        await this.loadCurrencies();
         if (this.currentTab === 'sales') {
             this.updateInvoiceTotalPreview();
         }
@@ -2510,11 +2443,22 @@ ${vatRows}
     }
 
     // BACKUP & RESTORE
-    backupData() {
-        const data = storage.exportData();
+    async backupData() {
+        const [clients, suppliers, products, transactions, invoices, employees, payrollRecords,
+            productionRecipes, productionOrders, documents, companyInfo, settings, currencies] = await Promise.all([
+            api.getClients(), api.getSuppliers(), api.getProducts(), api.getTransactions(), api.getInvoices(),
+            api.getEmployees(), api.getPayroll(), api.getProductionRecipes(), api.getProductionOrders(),
+            api.getDocuments(), api.getCompanyInfo(), api.getSettings(), api.getCurrencies()
+        ]);
+
+        const data = {
+            clients, suppliers, products, transactions, invoices, employees, payrollRecords,
+            productionRecipes, productionOrders, documents, companyInfo, settings, currencies,
+            exportedAt: new Date().toISOString()
+        };
+
         const fileName = `Backup_${new Date().toISOString().split('T')[0]}.json`;
-        
-        const blob = new Blob([data], { type: 'application/json' });
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -2525,20 +2469,89 @@ ${vatRows}
         this.showMessage('Ma\'lumotlar zaxiraga olingan faylga saqlandi', 'success');
     }
 
-    restoreData(e) {
+    async restoreData(e) {
         const file = e.target.files[0];
         if (!file) return;
 
+        if (!this.canEditSettings()) {
+            this.showMessage('Faqat administrator ma\'lumotlarni qaytara oladi', 'error');
+            e.target.value = '';
+            return;
+        }
+        if (!confirm('Fayldagi ma\'lumotlar joriy serverdagi mavjud ma\'lumotlarga QO\'SHILADI (o\'rnini bosmaydi). Davom etilsinmi?')) {
+            e.target.value = '';
+            return;
+        }
+
         const reader = new FileReader();
-        reader.onload = (event) => {
+        reader.onload = async (event) => {
             try {
-                const jsonString = event.target.result;
-                if (storage.importData(jsonString)) {
-                    alert('Ma\'lumotlar muvaffaqiyatli qaytarildi. Sahifa yangilanadi...');
-                    window.location.reload();
-                } else {
-                    this.showMessage('Faylni o\'qishda xato', 'error');
+                const data = JSON.parse(event.target.result);
+
+                // Eski ID -> yangi (server) ID moslashtiruvchi lug'atlar
+                const productIdMap = new Map();
+                const clientIdMap = new Map();
+                const supplierIdMap = new Map();
+                const employeeIdMap = new Map();
+
+                for (const p of data.products || []) {
+                    const { id: oldId, ...rest } = p;
+                    const created = await api.addProduct(rest);
+                    productIdMap.set(oldId, created.id);
+                    // addProduct har doim stock=0 bilan yaratadi - zahirani zaxiradagi holatga moslashtiramiz
+                    if (p.stock) {
+                        await api.addInventoryMovement({ productId: created.id, type: 'adjust', quantity: p.stock, description: 'Backup\'dan tiklandi' });
+                    }
                 }
+                for (const c of data.clients || []) {
+                    const { id: oldId, ...rest } = c;
+                    const created = await api.addClient(rest);
+                    clientIdMap.set(oldId, created.id);
+                }
+                for (const s of data.suppliers || []) {
+                    const { id: oldId, ...rest } = s;
+                    const created = await api.addSupplier(rest);
+                    supplierIdMap.set(oldId, created.id);
+                }
+                for (const emp of data.employees || []) {
+                    const { id: oldId, ...rest } = emp;
+                    const created = await api.addEmployee(rest);
+                    employeeIdMap.set(oldId, created.id);
+                }
+                for (const t of data.transactions || []) {
+                    await api.addTransaction({
+                        date: t.date, type: t.type, category: t.category, description: t.description,
+                        amount: t.amount, currency: t.currency,
+                        clientId: clientIdMap.get(t.clientId) || '', supplierId: supplierIdMap.get(t.supplierId) || ''
+                    });
+                }
+                for (const inv of data.invoices || []) {
+                    const lineItems = (inv.lineItems || []).map(li => ({ ...li, productId: productIdMap.get(li.productId) || li.productId }));
+                    // Raqam berilmaydi - additiv restore bir xil invoice raqamini takrorlamasligi kerak (server o'zi yangi raqam beradi)
+                    await api.addInvoice({
+                        date: inv.date, description: inv.description, currency: inv.currency,
+                        clientId: clientIdMap.get(inv.clientId) || '', lineItems
+                    });
+                }
+                for (const rec of data.productionRecipes || []) {
+                    const materials = (rec.materials || []).map(m => ({ ...m, productId: productIdMap.get(m.productId) || m.productId }));
+                    await api.addProductionRecipe({ name: rec.name, finishedProductId: productIdMap.get(rec.finishedProductId) || rec.finishedProductId, materials });
+                }
+                for (const order of data.productionOrders || []) {
+                    const materials = (order.materials || []).map(m => ({ ...m, productId: productIdMap.get(m.productId) || m.productId }));
+                    await api.addProductionOrder({
+                        finishedProductId: productIdMap.get(order.finishedProductId) || order.finishedProductId,
+                        producedQuantity: order.producedQuantity, materials, date: order.date, description: order.description
+                    });
+                }
+                for (const doc of data.documents || []) {
+                    await api.addDocument({ type: doc.type, number: doc.number, date: doc.date, clientId: clientIdMap.get(doc.clientId) || '', html: doc.html });
+                }
+                if (data.companyInfo) await api.updateCompanyInfo(data.companyInfo);
+                if (data.settings) await api.updateSettings(data.settings);
+
+                alert('Ma\'lumotlar muvaffaqiyatli qaytarildi. Sahifa yangilanadi...');
+                window.location.reload();
             } catch (error) {
                 this.showMessage('Faylni qayta ishlashda xato: ' + error.message, 'error');
             }
@@ -2546,8 +2559,38 @@ ${vatRows}
         reader.readAsText(file);
     }
 
-    clearAllData() {
-        storage.clear();
+    async clearAllData() {
+        if (!this.canEditSettings()) {
+            this.showMessage('Faqat administrator barcha ma\'lumotlarni o\'chira oladi', 'error');
+            return;
+        }
+        if (!confirm('DIQQAT: bu serverdagi umumiy (barcha foydalanuvchilar ko\'radigan) ma\'lumotlarni butunlay o\'chiradi. Davom etilsinmi?')) {
+            return;
+        }
+        if (!confirm('Ishonchingiz komilmi? Bu amalni orqaga qaytarib bo\'lmaydi.')) {
+            return;
+        }
+
+        try {
+            const [clients, suppliers, products, transactions, invoices, employees,
+                productionRecipes, productionOrders, documents] = await Promise.all([
+                api.getClients(), api.getSuppliers(), api.getProducts(), api.getTransactions(), api.getInvoices(),
+                api.getEmployees(), api.getProductionRecipes(), api.getProductionOrders(), api.getDocuments()
+            ]);
+            await Promise.all(documents.map(d => api.deleteDocument(d.id)));
+            await Promise.all(invoices.map(i => api.deleteInvoice(i.id)));
+            await Promise.all(productionOrders.map(o => api.deleteProductionOrder(o.id)));
+            await Promise.all(productionRecipes.map(r => api.deleteProductionRecipe(r.id)));
+            await Promise.all(transactions.map(t => api.deleteTransaction(t.id)));
+            await Promise.all(employees.map(e => api.deleteEmployee(e.id)));
+            await Promise.all(products.map(p => api.deleteProduct(p.id)));
+            await Promise.all(clients.map(c => api.deleteClient(c.id)));
+            await Promise.all(suppliers.map(s => api.deleteSupplier(s.id)));
+        } catch (err) {
+            this.showMessage('Tozalashda xato: ' + err.message, 'error');
+            return;
+        }
+
         this.showMessage('Barcha ma\'lumotlar o\'chirildi', 'success');
         setTimeout(() => window.location.reload(), 1500);
     }
@@ -2585,8 +2628,9 @@ ${vatRows}
     }
 
     // Products
-    exportProductsToExcel() {
-        const rows = storage.getProducts().map(p => ({
+    async exportProductsToExcel() {
+        const products = await api.getProducts();
+        const rows = products.map(p => ({
             name: p.name, category: this.getCategoryLabel(p.category), unit: p.unit,
             minStock: p.minStock, purchasePrice: p.purchasePrice, sellingPrice: p.sellingPrice,
             default_currency: p.default_currency, stock: p.stock
@@ -2600,25 +2644,23 @@ ${vatRows}
         if (!file) return;
         try {
             const { rows, errors } = await excelManager.readFile('products', file);
-            const defaultCurrency = storage.getSettings().defaultCurrency || 'UZS';
+            const defaultCurrency = (this.settings && this.settings.defaultCurrency) || 'UZS';
             let imported = 0;
-            rows.forEach((r, i) => {
-                if (!r.name) return;
-                storage.addProduct({
-                    id: Date.now().toString() + '_p' + i,
+            for (const r of rows) {
+                if (!r.name) continue;
+                await api.addProduct({
                     name: r.name,
                     category: this.resolveProductCategory(r.category),
                     unit: r.unit || 'dona',
                     minStock: r.minStock || 10,
                     purchasePrice: r.purchasePrice || 0,
                     sellingPrice: r.sellingPrice || 0,
-                    default_currency: r.default_currency || defaultCurrency,
-                    stock: r.stock || 0
+                    default_currency: r.default_currency || defaultCurrency
                 });
                 imported++;
-            });
-            this.loadInventory();
-            this.updateProductDropdowns();
+            }
+            await this.loadInventory();
+            await this.updateProductDropdowns();
             this.reportImportResult('Mahsulotlar', imported, errors);
         } catch (err) {
             this.showMessage('Import xatosi: ' + err.message, 'error');
@@ -2627,8 +2669,9 @@ ${vatRows}
     }
 
     // Clients
-    exportClientsToExcel() {
-        const rows = storage.getClients().map(c => ({ name: c.name, stir: c.stir, phone: c.phone, address: c.address }));
+    async exportClientsToExcel() {
+        const clients = await api.getClients();
+        const rows = clients.map(c => ({ name: c.name, stir: c.stir, phone: c.phone, address: c.address }));
         excelManager.exportRows('clients', rows);
         this.showMessage(`${rows.length} ta mijoz Excel'ga eksport qilindi`, 'success');
     }
@@ -2639,14 +2682,14 @@ ${vatRows}
         try {
             const { rows, errors } = await excelManager.readFile('clients', file);
             let imported = 0;
-            rows.forEach(r => {
-                if (!r.name) return;
-                storage.addClient({ name: r.name, stir: r.stir || '', phone: r.phone || '', address: r.address || '' });
+            for (const r of rows) {
+                if (!r.name) continue;
+                await api.addClient({ name: r.name, stir: r.stir || '', phone: r.phone || '', address: r.address || '' });
                 imported++;
-            });
-            this.displayClients();
-            this.updateClientDropdowns();
-            this.updateSupplierDropdowns();
+            }
+            await this.displayClients();
+            await this.updateClientDropdowns();
+            await this.updateSupplierDropdowns();
             this.reportImportResult('Mijozlar', imported, errors);
         } catch (err) {
             this.showMessage('Import xatosi: ' + err.message, 'error');
@@ -2655,8 +2698,9 @@ ${vatRows}
     }
 
     // Suppliers
-    exportSuppliersToExcel() {
-        const rows = storage.getSuppliers().map(s => ({
+    async exportSuppliersToExcel() {
+        const suppliers = await api.getSuppliers();
+        const rows = suppliers.map(s => ({
             name: s.name, stir: s.stir, phone: s.phone, address: s.address,
             productType: this.getProductTypeLabel(s.productType)
         }));
@@ -2670,16 +2714,16 @@ ${vatRows}
         try {
             const { rows, errors } = await excelManager.readFile('suppliers', file);
             let imported = 0;
-            rows.forEach(r => {
-                if (!r.name) return;
-                storage.addSupplier({
+            for (const r of rows) {
+                if (!r.name) continue;
+                await api.addSupplier({
                     name: r.name, stir: r.stir || '', phone: r.phone || '', address: r.address || '',
                     productType: this.resolveSupplierProductType(r.productType)
                 });
                 imported++;
-            });
-            this.displaySuppliers();
-            this.updateSupplierDropdowns();
+            }
+            await this.displaySuppliers();
+            await this.updateSupplierDropdowns();
             this.reportImportResult('Yetkazib beruvchilar', imported, errors);
         } catch (err) {
             this.showMessage('Import xatosi: ' + err.message, 'error');
@@ -2688,15 +2732,16 @@ ${vatRows}
     }
 
     // Transactions
-    exportTransactionsToExcel() {
-        const clients = storage.getClients();
-        const suppliers = storage.getSuppliers();
-        const rows = storage.getTransactions().map(t => ({
+    async exportTransactionsToExcel() {
+        const [clients, suppliers, transactions] = await Promise.all([api.getClients(), api.getSuppliers(), api.getTransactions()]);
+        const clientMap = new Map(clients.map(c => [c.id, c]));
+        const supplierMap = new Map(suppliers.map(s => [s.id, s]));
+        const rows = transactions.map(t => ({
             date: t.date ? String(t.date).split('T')[0] : '',
             type: t.type,
             category: t.category,
-            clientName: (clients.find(c => c.id === t.clientId) || {}).name || '',
-            supplierName: (suppliers.find(s => s.id === t.supplierId) || {}).name || '',
+            clientName: clientMap.get(t.clientId)?.name || '',
+            supplierName: supplierMap.get(t.supplierId)?.name || '',
             amount: t.amount,
             currency: t.currency || '',
             description: t.description || ''
@@ -2711,44 +2756,45 @@ ${vatRows}
         try {
             const { rows, errors } = await excelManager.readFile('transactions', file);
             let imported = 0, createdClients = 0, createdSuppliers = 0;
+            let [clients, suppliers] = await Promise.all([api.getClients(), api.getSuppliers()]);
 
-            rows.forEach(r => {
-                if (!r.date || !r.amount) return;
+            for (const r of rows) {
+                if (!r.date || !r.amount) continue;
                 const t = String(r.type || '').toLowerCase();
                 let type = null;
                 if (t.includes('income') || t.includes('daromad') || t.includes('xarid')) type = 'income';
                 else if (t.includes('expense') || t.includes('chiqim') || t.includes('xaraj')) type = 'expense';
                 if (!type) {
                     errors.push(`${r.__row}-qator: "Turi" ustuni income yoki expense bo'lishi kerak`);
-                    return;
+                    continue;
                 }
 
                 let clientId = '';
                 if (r.clientName) {
-                    let client = storage.getClients().find(c => (c.name || '').toLowerCase() === String(r.clientName).toLowerCase());
-                    if (!client) { client = storage.addClient({ name: r.clientName }); createdClients++; }
+                    let client = clients.find(c => (c.name || '').toLowerCase() === String(r.clientName).toLowerCase());
+                    if (!client) { client = await api.addClient({ name: r.clientName }); clients.push(client); createdClients++; }
                     clientId = client.id;
                 }
                 let supplierId = '';
                 if (r.supplierName) {
-                    let supplier = storage.getSuppliers().find(s => (s.name || '').toLowerCase() === String(r.supplierName).toLowerCase());
-                    if (!supplier) { supplier = storage.addSupplier({ name: r.supplierName }); createdSuppliers++; }
+                    let supplier = suppliers.find(s => (s.name || '').toLowerCase() === String(r.supplierName).toLowerCase());
+                    if (!supplier) { supplier = await api.addSupplier({ name: r.supplierName }); suppliers.push(supplier); createdSuppliers++; }
                     supplierId = supplier.id;
                 }
 
-                storage.addTransaction({
+                await api.addTransaction({
                     date: r.date, clientId, supplierId, type,
                     category: r.category || 'other',
                     amount: r.amount, currency: r.currency || '',
                     description: r.description || ''
                 });
                 imported++;
-            });
+            }
 
-            this.displayTransactions();
-            this.loadDashboard();
-            this.updateClientDropdowns();
-            this.updateSupplierDropdowns();
+            await this.displayTransactions();
+            await this.loadDashboard();
+            await this.updateClientDropdowns();
+            await this.updateSupplierDropdowns();
 
             let msg = `Tranzaksiyalar: ${imported} ta qator import qilindi`;
             if (createdClients) msg += `, ${createdClients} ta yangi mijoz avtomatik yaratildi`;
@@ -2761,8 +2807,9 @@ ${vatRows}
     }
 
     // Employees
-    exportEmployeesToExcel() {
-        const rows = storage.getEmployees().map(emp => ({
+    async exportEmployeesToExcel() {
+        const employees = await api.getEmployees();
+        const rows = employees.map(emp => ({
             name: emp.name, position: emp.position, salary: emp.salary, taxRate: emp.taxRate
         }));
         excelManager.exportRows('employees', rows);
@@ -2774,21 +2821,20 @@ ${vatRows}
         if (!file) return;
         try {
             const { rows, errors } = await excelManager.readFile('employees', file);
-            const defaultNdfl = storage.getSettings().taxNDFL || 12;
+            const settings = await api.getSettings();
+            const defaultNdfl = settings.taxNDFL || 12;
             let imported = 0;
-            rows.forEach((r, i) => {
-                if (!r.name) return;
-                storage.addEmployee({
-                    id: Date.now().toString() + '_e' + i,
+            for (const r of rows) {
+                if (!r.name) continue;
+                await api.addEmployee({
                     name: r.name, position: r.position || '',
                     salary: r.salary || 0,
-                    taxRate: r.taxRate || defaultNdfl,
-                    createdAt: new Date().toISOString()
+                    taxRate: r.taxRate || defaultNdfl
                 });
                 imported++;
-            });
-            this.displayEmployees();
-            this.updateEmployeeDropdowns();
+            }
+            await this.displayEmployees();
+            await this.updateEmployeeDropdowns();
             this.reportImportResult('Xodimlar', imported, errors);
         } catch (err) {
             this.showMessage('Import xatosi: ' + err.message, 'error');
@@ -2797,9 +2843,9 @@ ${vatRows}
     }
 
     // Invoices (export only - ko'p qatorli hujjat bo'lgani uchun import qo'llab-quvvatlanmaydi)
-    exportInvoicesToExcel() {
-        const clients = storage.getClients();
-        const rows = storage.getInvoices().map(inv => ({
+    async exportInvoicesToExcel() {
+        const [clients, invoices] = await Promise.all([api.getClients(), api.getInvoices()]);
+        const rows = invoices.map(inv => ({
             number: inv.number,
             date: inv.date ? String(inv.date).split('T')[0] : '',
             clientName: (clients.find(c => c.id === inv.clientId) || {}).name || '',
@@ -2814,14 +2860,14 @@ ${vatRows}
     }
 
     // INVENTORY METHODS
-    loadInventory() {
-        this.updateInventoryStats();
-        this.displayProducts();
-        this.updateProductDropdowns();
+    async loadInventory() {
+        await this.updateInventoryStats();
+        await this.displayProducts();
+        await this.updateProductDropdowns();
     }
 
-    updateInventoryStats() {
-        const products = storage.getProducts();
+    async updateInventoryStats() {
+        const products = await api.getProducts();
         const totalProducts = products.length;
         const totalValue = products.reduce((sum, p) => sum + (p.stock * p.purchasePrice), 0);
         const lowStockItems = products.filter(p => p.stock <= p.minStock && p.stock > 0).length;
@@ -2838,26 +2884,30 @@ ${vatRows}
         document.getElementById('productForm').reset();
     }
 
-    handleAddProduct(e) {
+    async handleAddProduct(e) {
         e.preventDefault();
 
-        const defaultCurrency = storage.getSettings().defaultCurrency || 'UZS';
+        const defaultCurrency = (this.settings && this.settings.defaultCurrency) || 'UZS';
         const selectedCurrency = document.getElementById('productCurrency')?.value;
         const product = {
-            id: Date.now().toString(),
             name: document.getElementById('productName').value,
             category: document.getElementById('productCategory').value,
             unit: document.getElementById('productUnit').value,
             minStock: parseInt(document.getElementById('minStock').value) || 10,
             purchasePrice: parseFloat(document.getElementById('purchasePrice').value) || 0,
             sellingPrice: parseFloat(document.getElementById('sellingPrice').value) || 0,
-            default_currency: selectedCurrency || defaultCurrency,
-            stock: 0
+            default_currency: selectedCurrency || defaultCurrency
         };
 
-        storage.addProduct(product);
+        try {
+            await api.addProduct(product);
+        } catch (err) {
+            this.showMessage('Mahsulot qo\'shishda xato: ' + err.message, 'error');
+            return;
+        }
+
         document.getElementById('addProductModal').style.display = 'none';
-        this.loadInventory();
+        await this.loadInventory();
         this.showMessage('Mahsulot muvaffaqiyatli qo\'shildi', 'success');
     }
 
@@ -2888,7 +2938,7 @@ ${vatRows}
         this.updateProductDropdowns();
     }
 
-    handleStockMovement(e) {
+    async handleStockMovement(e) {
         e.preventDefault();
 
         const productId = document.getElementById('movementProduct').value;
@@ -2901,24 +2951,20 @@ ${vatRows}
             return;
         }
 
-        const movement = {
-            id: Date.now().toString(),
-            productId,
-            type: this.currentMovementType,
-            quantity: this.currentMovementType === 'adjust' ? 0 : (this.currentMovementType === 'out' ? -quantity : quantity),
-            newStock: this.currentMovementType === 'adjust' ? quantity : null,
-            date,
-            description
-        };
+        try {
+            await api.addInventoryMovement({ productId, type: this.currentMovementType, quantity, date, description });
+        } catch (err) {
+            this.showMessage('Harakatni saqlashda xato: ' + err.message, 'error');
+            return;
+        }
 
-        storage.addInventoryMovement(movement);
         document.getElementById('stockMovementModal').style.display = 'none';
-        this.loadInventory();
+        await this.loadInventory();
         this.showMessage('Harakat muvaffaqiyatli amalga oshirildi', 'success');
     }
 
-    displayProducts() {
-        const products = storage.getProducts();
+    async displayProducts() {
+        const products = await api.getProducts();
         const tbody = document.getElementById('productsTableBody');
         tbody.innerHTML = '';
 
@@ -2951,12 +2997,12 @@ ${vatRows}
         });
     }
 
-    filterProducts() {
+    async filterProducts() {
         const searchTerm = document.getElementById('productSearch').value.toLowerCase();
         const categoryFilter = document.getElementById('categoryFilter').value;
         const stockFilter = document.getElementById('stockFilter').value;
 
-        let products = storage.getProducts();
+        let products = await api.getProducts();
 
         if (searchTerm) {
             products = products.filter(p => p.name.toLowerCase().includes(searchTerm));
@@ -3009,8 +3055,8 @@ ${vatRows}
         });
     }
 
-    updateProductDropdowns() {
-        const products = storage.getProducts();
+    async updateProductDropdowns() {
+        const products = await api.getProducts();
         const selects = document.querySelectorAll('#movementProduct');
 
         selects.forEach(select => {
@@ -3024,23 +3070,28 @@ ${vatRows}
         });
     }
 
-    editProduct(productId) {
-        const product = storage.getProductById(productId);
+    async editProduct(productId) {
+        const product = await api.getProductById(productId);
         if (!product) return;
 
         // For now, just show a message. Could implement full edit modal later
         this.showMessage('Tahrirlash funksiyasi tez orada qo\'shiladi', 'warning');
     }
 
-    deleteProduct(productId) {
-        if (!storage.canDelete()) {
+    async deleteProduct(productId) {
+        if (!this.canDelete()) {
             this.showMessage('Faqat menejeri va administratorlar o\'chira oladi', 'error');
             return;
         }
         if (!confirm('Mahsulotni o\'chirishni xohlaysizmi? Bu harakatni bekor qilib bo\'lmaydi.')) return;
 
-        storage.deleteProduct(productId);
-        this.loadInventory();
+        try {
+            await api.deleteProduct(productId);
+        } catch (err) {
+            this.showMessage('O\'chirishda xato: ' + err.message, 'error');
+            return;
+        }
+        await this.loadInventory();
         this.showMessage('Mahsulot o\'chirildi', 'success');
     }
 

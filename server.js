@@ -5,6 +5,7 @@ const sqlite3 = require('sqlite3').verbose();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const path = require('path');
+const { randomUUID } = require('crypto');
 require('dotenv').config();
 
 const app = express();
@@ -26,10 +27,34 @@ const db = new sqlite3.Database('./accounting.db', (err) => {
     else console.log('Connected to SQLite database');
 });
 
+// Promise helpers around sqlite3's callback API
+const dbRun = (sql, params = []) => new Promise((resolve, reject) => {
+    db.run(sql, params, function (err) {
+        if (err) reject(err); else resolve(this);
+    });
+});
+const dbGet = (sql, params = []) => new Promise((resolve, reject) => {
+    db.get(sql, params, (err, row) => { if (err) reject(err); else resolve(row); });
+});
+const dbAll = (sql, params = []) => new Promise((resolve, reject) => {
+    db.all(sql, params, (err, rows) => { if (err) reject(err); else resolve(rows); });
+});
+
+const addColumnIfNotExists = (table, columnName, columnDef) => {
+    db.all(`PRAGMA table_info(${table})`, (err, rows) => {
+        if (err) return console.error('PRAGMA error', err);
+        const exists = rows && rows.some(r => r.name === columnName);
+        if (!exists) {
+            db.run(`ALTER TABLE ${table} ADD COLUMN ${columnDef}`, (err) => {
+                if (err) console.error(`Could not add column ${columnName} to ${table}:`, err.message);
+            });
+        }
+    });
+};
+
 // Initialize database schema
 const initializeDatabase = () => {
     db.serialize(() => {
-        // Users table
         db.run(`CREATE TABLE IF NOT EXISTS users (
             id TEXT PRIMARY KEY,
             username TEXT UNIQUE NOT NULL,
@@ -39,33 +64,55 @@ const initializeDatabase = () => {
             createdAt TEXT NOT NULL
         )`);
 
-        // Clients
         db.run(`CREATE TABLE IF NOT EXISTS clients (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
+            stir TEXT,
             phone TEXT,
-            email TEXT,
             address TEXT,
             createdAt TEXT NOT NULL
         )`);
 
-        // Products
-        db.run(`CREATE TABLE IF NOT EXISTS products (
+        db.run(`CREATE TABLE IF NOT EXISTS suppliers (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
-            code TEXT UNIQUE,
-            purchasePrice REAL,
-            salePrice REAL,
-            stock INTEGER,
-            minStock INTEGER,
+            stir TEXT,
+            phone TEXT,
+            address TEXT,
             productType TEXT,
             createdAt TEXT NOT NULL
         )`);
 
-        // Transactions
+        db.run(`CREATE TABLE IF NOT EXISTS products (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            category TEXT,
+            unit TEXT,
+            purchasePrice REAL,
+            sellingPrice REAL,
+            stock INTEGER DEFAULT 0,
+            minStock INTEGER DEFAULT 0,
+            default_currency TEXT,
+            createdAt TEXT NOT NULL
+        )`);
+
+        db.run(`CREATE TABLE IF NOT EXISTS inventory_movements (
+            id TEXT PRIMARY KEY,
+            productId TEXT NOT NULL,
+            type TEXT NOT NULL,
+            quantity INTEGER NOT NULL,
+            newStock INTEGER,
+            date TEXT NOT NULL,
+            description TEXT,
+            createdAt TEXT NOT NULL
+        )`);
+
         db.run(`CREATE TABLE IF NOT EXISTS transactions (
             id TEXT PRIMARY KEY,
             date TEXT NOT NULL,
+            clientId TEXT,
+            supplierId TEXT,
+            payrollRecordId TEXT,
             type TEXT NOT NULL,
             category TEXT,
             description TEXT,
@@ -74,7 +121,6 @@ const initializeDatabase = () => {
             createdAt TEXT NOT NULL
         )`);
 
-        // Production recipes
         db.run(`CREATE TABLE IF NOT EXISTS production_recipes (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
@@ -83,30 +129,34 @@ const initializeDatabase = () => {
             createdAt TEXT NOT NULL
         )`);
 
-        // Production orders
         db.run(`CREATE TABLE IF NOT EXISTS production_orders (
             id TEXT PRIMARY KEY,
             finishedProductId TEXT NOT NULL,
             producedQuantity INTEGER,
             materials TEXT,
             date TEXT NOT NULL,
-            cost REAL,
+            description TEXT,
+            recipeId TEXT,
+            productionCost REAL,
+            materialCostPerUnit REAL,
             createdAt TEXT NOT NULL
         )`);
 
-        // Invoices
         db.run(`CREATE TABLE IF NOT EXISTS invoices (
             id TEXT PRIMARY KEY,
             number TEXT UNIQUE,
             clientId TEXT,
+            description TEXT,
             lines TEXT,
+            subtotal REAL,
+            vatRate REAL,
+            vatAmount REAL,
             total REAL,
             date TEXT NOT NULL,
             status TEXT,
             createdAt TEXT NOT NULL
         )`);
 
-        // Employees
         db.run(`CREATE TABLE IF NOT EXISTS employees (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
@@ -116,27 +166,25 @@ const initializeDatabase = () => {
             createdAt TEXT NOT NULL
         )`);
 
-        // Payroll records
         db.run(`CREATE TABLE IF NOT EXISTS payroll_records (
             id TEXT PRIMARY KEY,
             employeeId TEXT NOT NULL,
             period TEXT NOT NULL,
             gross REAL,
             tax REAL,
+            socialTax REAL,
             deductions REAL,
             net REAL,
             date TEXT NOT NULL,
             createdAt TEXT NOT NULL
         )`);
 
-        // Currencies
         db.run(`CREATE TABLE IF NOT EXISTS currencies (
             code TEXT PRIMARY KEY,
             name TEXT,
             symbol TEXT
         )`);
 
-        // Exchange rates
         db.run(`CREATE TABLE IF NOT EXISTS exchange_rates (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             from_currency TEXT,
@@ -146,24 +194,37 @@ const initializeDatabase = () => {
             source TEXT
         )`);
 
-        // Ensure product/transaction columns for multi-currency exist
-        const addColumnIfNotExists = (table, columnName, columnDef) => {
-            db.all(`PRAGMA table_info(${table})`, (err, rows) => {
-                if (err) return console.error('PRAGMA error', err);
-                const exists = rows && rows.some(r => r.name === columnName);
-                if (!exists) {
-                    db.run(`ALTER TABLE ${table} ADD COLUMN ${columnDef}`,(err) => {
-                        if (err) console.error(`Could not add column ${columnName} to ${table}:`, err.message);
-                    });
-                }
-            });
-        };
+        db.run(`CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )`);
 
-        addColumnIfNotExists('products', 'default_currency', "default_currency TEXT");
-        addColumnIfNotExists('transactions', 'currency', "currency TEXT");
-        addColumnIfNotExists('transactions', 'amount_base', "amount_base REAL");
-        addColumnIfNotExists('transactions', 'rate', "rate REAL");
-        addColumnIfNotExists('transactions', 'rate_date', "rate_date TEXT");
+        db.run(`CREATE TABLE IF NOT EXISTS documents (
+            id TEXT PRIMARY KEY,
+            type TEXT NOT NULL,
+            number TEXT,
+            date TEXT,
+            clientId TEXT,
+            html TEXT,
+            createdAt TEXT NOT NULL
+        )`);
+
+        // Legacy DB migration: add columns that may be missing on an older accounting.db
+        addColumnIfNotExists('products', 'category', 'category TEXT');
+        addColumnIfNotExists('products', 'unit', 'unit TEXT');
+        addColumnIfNotExists('products', 'sellingPrice', 'sellingPrice REAL');
+        addColumnIfNotExists('products', 'default_currency', 'default_currency TEXT');
+        addColumnIfNotExists('transactions', 'clientId', 'clientId TEXT');
+        addColumnIfNotExists('transactions', 'supplierId', 'supplierId TEXT');
+        addColumnIfNotExists('transactions', 'payrollRecordId', 'payrollRecordId TEXT');
+        addColumnIfNotExists('transactions', 'currency', 'currency TEXT');
+        addColumnIfNotExists('transactions', 'amount_base', 'amount_base REAL');
+        addColumnIfNotExists('transactions', 'rate', 'rate REAL');
+        addColumnIfNotExists('transactions', 'rate_date', 'rate_date TEXT');
+        addColumnIfNotExists('invoices', 'subtotal', 'subtotal REAL');
+        addColumnIfNotExists('invoices', 'vatRate', 'vatRate REAL');
+        addColumnIfNotExists('invoices', 'vatAmount', 'vatAmount REAL');
+        addColumnIfNotExists('payroll_records', 'socialTax', 'socialTax REAL');
 
         console.log('Database schema initialized');
     });
@@ -171,7 +232,40 @@ const initializeDatabase = () => {
 
 initializeDatabase();
 
-// Authentication middleware
+// Default tax/business settings - seeded into the settings table on first run only
+const DEFAULT_SETTINGS = {
+    taxRegime: 'umumiy',
+    taxVAT: '12',
+    taxIncome: '15',
+    taxTurnover: '4',
+    taxSSV: '12',
+    taxNDFL: '12',
+    defaultCurrency: BASE_CURRENCY
+};
+
+const COMPANY_INFO_KEYS = ['companyName', 'companyLegalForm', 'companyStir', 'companyOked', 'companyAddress',
+    'companyPhone', 'companyBankName', 'companyBankAccount', 'companyMfo', 'companyDirector', 'companyAccountant'];
+const DEFAULT_COMPANY_INFO = {
+    companyName: '', companyLegalForm: 'MChJ', companyStir: '', companyOked: '', companyAddress: '',
+    companyPhone: '', companyBankName: '', companyBankAccount: '', companyMfo: '', companyDirector: '', companyAccountant: ''
+};
+
+const seedDefaultSettings = async () => {
+    for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
+        await dbRun('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)', [key, value]);
+    }
+};
+setTimeout(() => { seedDefaultSettings().catch(err => console.error('Settings seed error:', err)); }, 300);
+
+const getSettingsObject = async () => {
+    const rows = await dbAll('SELECT key, value FROM settings');
+    const settings = { ...DEFAULT_SETTINGS };
+    rows.forEach(r => { settings[r.key] = r.value; });
+    return settings;
+};
+
+// ==================== AUTH MIDDLEWARE ====================
+
 const authenticate = (req, res, next) => {
     const token = req.headers.authorization?.split(' ')[1];
     if (!token) {
@@ -187,30 +281,58 @@ const authenticate = (req, res, next) => {
     }
 };
 
+const requireRole = (...roles) => (req, res, next) => {
+    if (!req.user || !roles.includes(req.user.role)) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+    next();
+};
+
 // ==================== AUTH ENDPOINTS ====================
 
-// Register user
-app.post('/api/auth/register', (req, res) => {
-    const { username, password, name, role } = req.body;
+// Register user. Bootstrap: if no users exist yet, the first call is unauthenticated
+// and always creates an admin. After that, only an authenticated admin may register users.
+app.post('/api/auth/register', async (req, res) => {
+    try {
+        const { username, password, name } = req.body;
+        let { role } = req.body;
 
-    if (!username || !password || !name) {
-        return res.status(400).json({ error: 'Missing required fields' });
-    }
-
-    const hashedPassword = bcrypt.hashSync(password, 10);
-    const userId = Date.now().toString();
-
-    db.run(
-        'INSERT INTO users (id, username, password, name, role, createdAt) VALUES (?, ?, ?, ?, ?, ?)',
-        [userId, username, hashedPassword, name, role || 'user', new Date().toISOString()],
-        function (err) {
-            if (err) {
-                console.error('Registration error:', err);
-                return res.status(400).json({ error: 'User already exists or invalid data' });
-            }
-            res.json({ message: 'User registered successfully', userId });
+        if (!username || !password || !name) {
+            return res.status(400).json({ error: 'Missing required fields' });
         }
-    );
+
+        const userCount = await dbGet('SELECT COUNT(*) as count FROM users');
+        const isBootstrap = userCount.count === 0;
+
+        if (isBootstrap) {
+            role = 'admin';
+        } else {
+            const token = req.headers.authorization?.split(' ')[1];
+            if (!token) return res.status(401).json({ error: 'No token provided' });
+            let decoded;
+            try {
+                decoded = jwt.verify(token, JWT_SECRET);
+            } catch (e) {
+                return res.status(401).json({ error: 'Invalid token' });
+            }
+            if (decoded.role !== 'admin') {
+                return res.status(403).json({ error: 'Only admins can register new users' });
+            }
+            role = role || 'user';
+        }
+
+        const hashedPassword = bcrypt.hashSync(password, 10);
+        const userId = randomUUID();
+
+        await dbRun(
+            'INSERT INTO users (id, username, password, name, role, createdAt) VALUES (?, ?, ?, ?, ?, ?)',
+            [userId, username, hashedPassword, name, role, new Date().toISOString()]
+        );
+        res.json({ message: 'User registered successfully', userId, role, bootstrap: isBootstrap });
+    } catch (err) {
+        console.error('Registration error:', err);
+        res.status(400).json({ error: 'User already exists or invalid data' });
+    }
 });
 
 // Login
@@ -241,83 +363,200 @@ app.post('/api/auth/login', (req, res) => {
     });
 });
 
-// ==================== CLIENTS ENDPOINTS ====================
-
-// Get all clients
-app.get('/api/clients', authenticate, (req, res) => {
-    db.all('SELECT * FROM clients', [], (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json(rows || []);
-    });
+// Restore session info from a stored token (used on page reload)
+app.get('/api/auth/me', authenticate, async (req, res) => {
+    const user = await dbGet('SELECT id, username, name, role FROM users WHERE id = ?', [req.user.userId]);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json({ user });
 });
 
-// Add client
-app.post('/api/clients', authenticate, (req, res) => {
-    const { name, phone, email, address } = req.body;
-    const clientId = Date.now().toString();
+// ==================== CLIENTS ====================
 
-    db.run(
-        'INSERT INTO clients (id, name, phone, email, address, createdAt) VALUES (?, ?, ?, ?, ?, ?)',
-        [clientId, name, phone, email, address, new Date().toISOString()],
-        function (err) {
-            if (err) return res.status(500).json({ error: err.message });
-            res.json({ id: clientId, name, phone, email, address });
-        }
-    );
+app.get('/api/clients', authenticate, async (req, res) => {
+    try { res.json(await dbAll('SELECT * FROM clients ORDER BY name')); }
+    catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Delete client
-app.delete('/api/clients/:id', authenticate, (req, res) => {
-    if (!['manager', 'admin'].includes(req.user.role)) {
-        return res.status(403).json({ error: 'Only managers and admins can delete' });
-    }
+app.get('/api/clients/:id', authenticate, async (req, res) => {
+    try {
+        const row = await dbGet('SELECT * FROM clients WHERE id = ?', [req.params.id]);
+        if (!row) return res.status(404).json({ error: 'Client not found' });
+        res.json(row);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
-    db.run('DELETE FROM clients WHERE id = ?', [req.params.id], function (err) {
-        if (err) return res.status(500).json({ error: err.message });
+app.post('/api/clients', authenticate, async (req, res) => {
+    try {
+        const { name, stir, phone, address } = req.body;
+        if (!name) return res.status(400).json({ error: 'name is required' });
+        const id = randomUUID();
+        const createdAt = new Date().toISOString();
+        await dbRun('INSERT INTO clients (id, name, stir, phone, address, createdAt) VALUES (?, ?, ?, ?, ?, ?)',
+            [id, name, stir || '', phone || '', address || '', createdAt]);
+        res.json({ id, name, stir, phone, address, createdAt });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/clients/:id', authenticate, async (req, res) => {
+    try {
+        const { name, stir, phone, address } = req.body;
+        if (!name) return res.status(400).json({ error: 'name is required' });
+        await dbRun('UPDATE clients SET name = ?, stir = ?, phone = ?, address = ? WHERE id = ?',
+            [name, stir || '', phone || '', address || '', req.params.id]);
+        res.json({ id: req.params.id, name, stir, phone, address });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/clients/:id', authenticate, requireRole('manager', 'admin'), async (req, res) => {
+    try {
+        await dbRun('DELETE FROM clients WHERE id = ?', [req.params.id]);
         res.json({ message: 'Client deleted' });
-    });
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ==================== PRODUCTS ENDPOINTS ====================
+// ==================== SUPPLIERS ====================
 
-// Get all products
-app.get('/api/products', authenticate, (req, res) => {
-    db.all('SELECT * FROM products', [], (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json(rows || []);
-    });
+app.get('/api/suppliers', authenticate, async (req, res) => {
+    try { res.json(await dbAll('SELECT * FROM suppliers ORDER BY name')); }
+    catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Add product
-app.post('/api/products', authenticate, (req, res) => {
-    const { name, code, purchasePrice, salePrice, stock, minStock, productType } = req.body;
-    const productId = Date.now().toString();
-
-    db.run(
-        'INSERT INTO products (id, name, code, purchasePrice, salePrice, stock, minStock, productType, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [productId, name, code, purchasePrice, salePrice, stock, minStock, productType, new Date().toISOString()],
-        function (err) {
-            if (err) return res.status(500).json({ error: err.message });
-            res.json({ id: productId, name, code, purchasePrice, salePrice, stock, minStock, productType });
-        }
-    );
+app.get('/api/suppliers/:id', authenticate, async (req, res) => {
+    try {
+        const row = await dbGet('SELECT * FROM suppliers WHERE id = ?', [req.params.id]);
+        if (!row) return res.status(404).json({ error: 'Supplier not found' });
+        res.json(row);
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Delete product
-app.delete('/api/products/:id', authenticate, (req, res) => {
-    if (!['manager', 'admin'].includes(req.user.role)) {
-        return res.status(403).json({ error: 'Only managers and admins can delete' });
-    }
+app.post('/api/suppliers', authenticate, async (req, res) => {
+    try {
+        const { name, stir, phone, address, productType } = req.body;
+        if (!name) return res.status(400).json({ error: 'name is required' });
+        const id = randomUUID();
+        const createdAt = new Date().toISOString();
+        await dbRun('INSERT INTO suppliers (id, name, stir, phone, address, productType, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [id, name, stir || '', phone || '', address || '', productType || '', createdAt]);
+        res.json({ id, name, stir, phone, address, productType, createdAt });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
-    db.run('DELETE FROM products WHERE id = ?', [req.params.id], function (err) {
-        if (err) return res.status(500).json({ error: err.message });
+app.put('/api/suppliers/:id', authenticate, async (req, res) => {
+    try {
+        const { name, stir, phone, address, productType } = req.body;
+        if (!name) return res.status(400).json({ error: 'name is required' });
+        await dbRun('UPDATE suppliers SET name = ?, stir = ?, phone = ?, address = ?, productType = ? WHERE id = ?',
+            [name, stir || '', phone || '', address || '', productType || '', req.params.id]);
+        res.json({ id: req.params.id, name, stir, phone, address, productType });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/suppliers/:id', authenticate, requireRole('manager', 'admin'), async (req, res) => {
+    try {
+        await dbRun('DELETE FROM suppliers WHERE id = ?', [req.params.id]);
+        res.json({ message: 'Supplier deleted' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ==================== PRODUCTS ====================
+
+app.get('/api/products', authenticate, async (req, res) => {
+    try { res.json(await dbAll('SELECT * FROM products ORDER BY name')); }
+    catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/products/:id', authenticate, async (req, res) => {
+    try {
+        const row = await dbGet('SELECT * FROM products WHERE id = ?', [req.params.id]);
+        if (!row) return res.status(404).json({ error: 'Product not found' });
+        res.json(row);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/products', authenticate, async (req, res) => {
+    try {
+        const { name, category, unit, purchasePrice, sellingPrice, minStock, default_currency } = req.body;
+        if (!name) return res.status(400).json({ error: 'name is required' });
+        const id = randomUUID();
+        const createdAt = new Date().toISOString();
+        await dbRun(
+            `INSERT INTO products (id, name, category, unit, purchasePrice, sellingPrice, stock, minStock, default_currency, createdAt)
+             VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
+            [id, name, category || '', unit || 'dona', purchasePrice || 0, sellingPrice || 0, minStock || 0, default_currency || BASE_CURRENCY, createdAt]
+        );
+        res.json({ id, name, category, unit, purchasePrice, sellingPrice, stock: 0, minStock, default_currency, createdAt });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/products/:id', authenticate, async (req, res) => {
+    try {
+        const { name, category, unit, purchasePrice, sellingPrice, minStock, default_currency } = req.body;
+        if (!name) return res.status(400).json({ error: 'name is required' });
+        await dbRun(
+            `UPDATE products SET name = ?, category = ?, unit = ?, purchasePrice = ?, sellingPrice = ?, minStock = ?, default_currency = ? WHERE id = ?`,
+            [name, category || '', unit || 'dona', purchasePrice || 0, sellingPrice || 0, minStock || 0, default_currency || BASE_CURRENCY, req.params.id]
+        );
+        const row = await dbGet('SELECT * FROM products WHERE id = ?', [req.params.id]);
+        res.json(row);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/products/:id', authenticate, requireRole('manager', 'admin'), async (req, res) => {
+    try {
+        await dbRun('DELETE FROM products WHERE id = ?', [req.params.id]);
         res.json({ message: 'Product deleted' });
-    });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ==================== INVENTORY MOVEMENTS ====================
+
+app.get('/api/inventory-movements', authenticate, async (req, res) => {
+    try {
+        const { productId } = req.query;
+        const rows = productId
+            ? await dbAll('SELECT * FROM inventory_movements WHERE productId = ? ORDER BY date DESC', [productId])
+            : await dbAll('SELECT * FROM inventory_movements ORDER BY date DESC');
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// type: 'in' | 'out' | 'adjust'. quantity is always a positive number from the client;
+// the sign/semantics are resolved here, mirroring the previous localStorage logic.
+app.post('/api/inventory-movements', authenticate, async (req, res) => {
+    try {
+        const { productId, type, quantity, date, description } = req.body;
+        if (!productId || !type || quantity === undefined || isNaN(parseInt(quantity, 10))) {
+            return res.status(400).json({ error: 'productId, type and quantity are required' });
+        }
+        const product = await dbGet('SELECT * FROM products WHERE id = ?', [productId]);
+        if (!product) return res.status(404).json({ error: 'Product not found' });
+
+        const qty = parseInt(quantity, 10);
+        let signedQuantity = 0;
+        let newStock = null;
+
+        if (type === 'adjust') {
+            newStock = qty;
+            await dbRun('UPDATE products SET stock = ? WHERE id = ?', [newStock, productId]);
+        } else {
+            signedQuantity = type === 'out' ? -qty : qty;
+            const updatedStock = Math.max(0, (product.stock || 0) + signedQuantity);
+            await dbRun('UPDATE products SET stock = ? WHERE id = ?', [updatedStock, productId]);
+        }
+
+        const id = randomUUID();
+        const createdAt = new Date().toISOString();
+        await dbRun(
+            'INSERT INTO inventory_movements (id, productId, type, quantity, newStock, date, description, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [id, productId, type, signedQuantity, newStock, date || createdAt, description || '', createdAt]
+        );
+        const updatedProduct = await dbGet('SELECT * FROM products WHERE id = ?', [productId]);
+        res.json({ movement: { id, productId, type, quantity: signedQuantity, newStock, date, description }, product: updatedProduct });
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ==================== CURRENCIES & EXCHANGE RATES ====================
 
-// Get supported currencies
 app.get('/api/currencies', authenticate, (req, res) => {
     db.all('SELECT * FROM currencies', [], (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
@@ -325,9 +564,7 @@ app.get('/api/currencies', authenticate, (req, res) => {
     });
 });
 
-// Add or update a currency (admin)
-app.post('/api/currencies', authenticate, (req, res) => {
-    if (!['admin', 'manager'].includes(req.user.role)) return res.status(403).json({ error: 'Forbidden' });
+app.post('/api/currencies', authenticate, requireRole('admin', 'manager'), (req, res) => {
     const { code, name, symbol } = req.body;
     if (!code) return res.status(400).json({ error: 'Currency code required' });
     db.run('INSERT OR REPLACE INTO currencies (code, name, symbol) VALUES (?, ?, ?)', [code, name, symbol], function (err) {
@@ -336,14 +573,20 @@ app.post('/api/currencies', authenticate, (req, res) => {
     });
 });
 
-// Get exchange rate (latest or at date)
 app.get('/api/exchange-rates', authenticate, (req, res) => {
     const { from, to } = req.query;
     let { date } = req.query;
-    if (!from || !to) return res.status(400).json({ error: 'from and to query params required' });
+
+    if (!from || !to) {
+        // No pair specified - return the full rate history (used by the admin rates list)
+        db.all('SELECT * FROM exchange_rates ORDER BY date DESC', [], (err, rows) => {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json(rows || []);
+        });
+        return;
+    }
 
     if (date) {
-        // return the latest rate on or before date
         db.get('SELECT * FROM exchange_rates WHERE from_currency = ? AND to_currency = ? AND date <= ? ORDER BY date DESC LIMIT 1', [from, to, date], (err, row) => {
             if (err) return res.status(500).json({ error: err.message });
             if (!row) return res.status(404).json({ error: 'Rate not found for the given date' });
@@ -358,9 +601,7 @@ app.get('/api/exchange-rates', authenticate, (req, res) => {
     }
 });
 
-// Add exchange rate (admin)
-app.post('/api/exchange-rates', authenticate, (req, res) => {
-    if (!['admin', 'manager'].includes(req.user.role)) return res.status(403).json({ error: 'Forbidden' });
+app.post('/api/exchange-rates', authenticate, requireRole('admin', 'manager'), (req, res) => {
     const { from_currency, to_currency, rate, date, source } = req.body;
     if (!from_currency || !to_currency || !rate) return res.status(400).json({ error: 'from_currency, to_currency and rate are required' });
     const d = date || new Date().toISOString();
@@ -370,171 +611,444 @@ app.post('/api/exchange-rates', authenticate, (req, res) => {
     });
 });
 
-// ==================== TRANSACTIONS ENDPOINTS ====================
+// ==================== TRANSACTIONS ====================
 
-// Get transactions
-app.get('/api/transactions', authenticate, (req, res) => {
-    db.all('SELECT * FROM transactions ORDER BY date DESC', [], (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json(rows || []);
-    });
+app.get('/api/transactions', authenticate, async (req, res) => {
+    try { res.json(await dbAll('SELECT * FROM transactions ORDER BY date DESC')); }
+    catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Add transaction
-app.post('/api/transactions', authenticate, (req, res) => {
-    const { date, type, category, description, amount, status, currency, rate, rate_date } = req.body;
-    const transId = Date.now().toString();
+app.get('/api/transactions/:id', authenticate, async (req, res) => {
+    try {
+        const row = await dbGet('SELECT * FROM transactions WHERE id = ?', [req.params.id]);
+        if (!row) return res.status(404).json({ error: 'Transaction not found' });
+        res.json(row);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
-    const createdAt = new Date().toISOString();
-
-    const insertTransaction = (appliedRate, amountBase, appliedRateDate, usedCurrency) => {
-        db.run(
-            'INSERT INTO transactions (id, date, type, category, description, amount, status, currency, rate, amount_base, rate_date, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            [transId, date, type, category, description, amount, status, usedCurrency, appliedRate, amountBase, appliedRateDate, createdAt],
-            function (err) {
-                if (err) return res.status(500).json({ error: err.message });
-                res.json({ id: transId, date, type, category, description, amount, status, currency: usedCurrency, rate: appliedRate, amount_base: amountBase, rate_date: appliedRateDate });
-            }
-        );
-    };
-
+const insertTransaction = async ({ date, clientId, supplierId, payrollRecordId, type, category, description, amount, status, currency, rate, rateDate }) => {
     const usedCurrency = currency || BASE_CURRENCY;
+    const createdAt = new Date().toISOString();
+    let appliedRate = 1;
+    let appliedRateDate = rateDate || date || createdAt;
 
-    if (!currency || currency === BASE_CURRENCY) {
-        insertTransaction(1, amount, date || createdAt, BASE_CURRENCY);
-        return;
-    }
-
-    if (rate && !isNaN(parseFloat(rate))) {
-        const r = parseFloat(rate);
-        insertTransaction(r, amount * r, rate_date || createdAt, usedCurrency);
-        return;
-    }
-
-    // Lookup latest exchange rate for currency -> base
-    db.get(
-        'SELECT rate, date FROM exchange_rates WHERE from_currency = ? AND to_currency = ? ORDER BY date DESC LIMIT 1',
-        [usedCurrency, BASE_CURRENCY],
-        (err, row) => {
-            if (err) return res.status(500).json({ error: err.message });
+    if (usedCurrency !== BASE_CURRENCY) {
+        if (rate && !isNaN(parseFloat(rate))) {
+            appliedRate = parseFloat(rate);
+        } else {
+            const row = await dbGet(
+                'SELECT rate, date FROM exchange_rates WHERE from_currency = ? AND to_currency = ? ORDER BY date DESC LIMIT 1',
+                [usedCurrency, BASE_CURRENCY]
+            );
             if (row && row.rate) {
-                insertTransaction(row.rate, amount * row.rate, row.date || createdAt, usedCurrency);
-            } else {
-                // Fallback: store as base amount (rate=1)
-                insertTransaction(1, amount, date || createdAt, usedCurrency);
+                appliedRate = row.rate;
+                appliedRateDate = row.date || appliedRateDate;
             }
         }
-    );
-});
-
-// Delete transaction
-app.delete('/api/transactions/:id', authenticate, (req, res) => {
-    if (!['manager', 'admin'].includes(req.user.role)) {
-        return res.status(403).json({ error: 'Only managers and admins can delete' });
     }
 
-    db.run('DELETE FROM transactions WHERE id = ?', [req.params.id], function (err) {
-        if (err) return res.status(500).json({ error: err.message });
+    const id = randomUUID();
+    const amountBase = amount * appliedRate;
+    await dbRun(
+        `INSERT INTO transactions (id, date, clientId, supplierId, payrollRecordId, type, category, description, amount, status, currency, rate, amount_base, rate_date, createdAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [id, date || createdAt, clientId || '', supplierId || '', payrollRecordId || '', type, category || '', description || '', amount, status || 'completed', usedCurrency, appliedRate, amountBase, appliedRateDate, createdAt]
+    );
+    return { id, date, clientId, supplierId, payrollRecordId, type, category, description, amount, status, currency: usedCurrency, rate: appliedRate, amount_base: amountBase, rate_date: appliedRateDate, createdAt };
+};
+
+app.post('/api/transactions', authenticate, async (req, res) => {
+    try {
+        const { date, clientId, supplierId, type, category, description, amount, status, currency, rate } = req.body;
+        if (!type || amount === undefined || isNaN(parseFloat(amount))) {
+            return res.status(400).json({ error: 'type and amount are required' });
+        }
+        const result = await insertTransaction({ date, clientId, supplierId, type, category, description, amount: parseFloat(amount), status, currency, rate });
+        res.json(result);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/transactions/:id', authenticate, requireRole('manager', 'admin'), async (req, res) => {
+    try {
+        await dbRun('DELETE FROM transactions WHERE id = ?', [req.params.id]);
         res.json({ message: 'Transaction deleted' });
-    });
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ==================== PAYROLL ENDPOINTS ====================
+// ==================== INVOICES (Savdo hujjatlari) ====================
 
-// Get employees
-app.get('/api/employees', authenticate, (req, res) => {
-    db.all('SELECT * FROM employees', [], (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json(rows || []);
-    });
+app.get('/api/invoices', authenticate, async (req, res) => {
+    try {
+        const rows = await dbAll('SELECT * FROM invoices ORDER BY date DESC');
+        res.json(rows.map(r => ({ ...r, lineItems: JSON.parse(r.lines || '[]') })));
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Add employee
-app.post('/api/employees', authenticate, (req, res) => {
-    const { name, position, salary, taxRate } = req.body;
-    const empId = Date.now().toString();
+app.get('/api/invoices/:id', authenticate, async (req, res) => {
+    try {
+        const row = await dbGet('SELECT * FROM invoices WHERE id = ?', [req.params.id]);
+        if (!row) return res.status(404).json({ error: 'Invoice not found' });
+        res.json({ ...row, lineItems: JSON.parse(row.lines || '[]') });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
-    db.run(
-        'INSERT INTO employees (id, name, position, salary, taxRate, createdAt) VALUES (?, ?, ?, ?, ?, ?)',
-        [empId, name, position, salary, taxRate, new Date().toISOString()],
-        function (err) {
-            if (err) return res.status(500).json({ error: err.message });
-            res.json({ id: empId, name, position, salary, taxRate });
+// Creates the invoice, recomputes VAT server-side from settings (never trusts client totals),
+// decrements stock for each line item, and books the matching income transaction.
+app.post('/api/invoices', authenticate, async (req, res) => {
+    try {
+        const { number, date, clientId, description, lineItems, currency } = req.body;
+        if (!Array.isArray(lineItems) || lineItems.length === 0) {
+            return res.status(400).json({ error: 'lineItems must be a non-empty array' });
         }
-    );
-});
 
-// Get payroll records
-app.get('/api/payroll', authenticate, (req, res) => {
-    db.all('SELECT * FROM payroll_records ORDER BY date DESC', [], (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json(rows || []);
-    });
-});
-
-// Add payroll record
-app.post('/api/payroll', authenticate, (req, res) => {
-    const { employeeId, period, gross, tax, deductions, net } = req.body;
-    const recordId = Date.now().toString();
-    const date = new Date().toISOString();
-
-    db.run(
-        'INSERT INTO payroll_records (id, employeeId, period, gross, tax, deductions, net, date, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [recordId, employeeId, period, gross, tax, deductions, net, date, date],
-        function (err) {
-            if (err) return res.status(500).json({ error: err.message });
-            
-            // Auto-create transaction
-            const transId = Date.now().toString() + 'tx';
-            const employee_name = 'Employee'; // Would fetch real name from DB
-            db.run(
-                'INSERT INTO transactions (id, date, type, category, description, amount, status, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                [transId, date, 'expense', 'salary', `Salary: ${employee_name} (${period})`, net, 'completed', date],
-                (err) => {
-                    res.json({ id: recordId, employeeId, period, gross, tax, deductions, net });
-                }
-            );
+        let subtotal = 0;
+        for (const item of lineItems) {
+            if (!item.productId || !item.quantity || item.quantity <= 0 || item.price === undefined || item.price < 0) {
+                return res.status(400).json({ error: 'Each line item needs productId, quantity > 0 and price >= 0' });
+            }
+            const product = await dbGet('SELECT * FROM products WHERE id = ?', [item.productId]);
+            if (!product) return res.status(400).json({ error: `Product not found: ${item.productId}` });
+            if (product.stock < item.quantity) {
+                return res.status(400).json({ error: `Not enough stock for "${product.name}". Available: ${product.stock}` });
+            }
+            subtotal += item.quantity * item.price;
         }
-    );
-});
 
-// Delete employee
-app.delete('/api/employees/:id', authenticate, (req, res) => {
-    if (!['manager', 'admin'].includes(req.user.role)) {
-        return res.status(403).json({ error: 'Only managers and admins can delete' });
-    }
+        const settings = await getSettingsObject();
+        const isSimplified = settings.taxRegime === 'soddalashtirilgan';
+        const vatRate = isSimplified ? 0 : parseFloat(settings.taxVAT) || 0;
+        const vatAmount = subtotal * (vatRate / 100);
+        const total = subtotal + vatAmount;
 
-    db.run('DELETE FROM employees WHERE id = ?', [req.params.id], function (err) {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json({ message: 'Employee deleted' });
-    });
-});
+        const id = randomUUID();
+        const createdAt = new Date().toISOString();
+        const invoiceNumber = number || `INV-${Date.now()}`;
 
-// ==================== STATISTICS ENDPOINTS ====================
+        await dbRun(
+            `INSERT INTO invoices (id, number, clientId, description, lines, subtotal, vatRate, vatAmount, total, date, status, createdAt)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [id, invoiceNumber, clientId || '', description || '', JSON.stringify(lineItems), subtotal, vatRate, vatAmount, total, date || createdAt, 'Yaratildi', createdAt]
+        );
 
-// Get statistics
-app.get('/api/statistics', authenticate, (req, res) => {
-    db.all('SELECT * FROM transactions', [], (err, transactions) => {
-        if (err) return res.status(500).json({ error: err.message });
+        for (const item of lineItems) {
+            await dbRun('UPDATE products SET stock = stock - ? WHERE id = ?', [item.quantity, item.productId]);
+        }
 
-        const totalIncome = transactions
-            .filter(t => t.type === 'income')
-            .reduce((sum, t) => sum + (t.amount || 0), 0);
-
-        const totalExpense = transactions
-            .filter(t => t.type === 'expense')
-            .reduce((sum, t) => sum + (t.amount || 0), 0);
-
-        const taxRate = 0.15; // 15%
-        const totalTax = totalIncome * taxRate;
-
-        res.json({
-            totalIncome,
-            totalExpense,
-            totalTax,
-            netProfit: totalIncome - totalExpense - totalTax
+        const transaction = await insertTransaction({
+            date: date || createdAt, clientId, type: 'income', category: 'sales',
+            description: `Invoice ${invoiceNumber}: ${description || ''}`, amount: total, currency
         });
-    });
+
+        res.json({ id, number: invoiceNumber, clientId, description, lineItems, subtotal, vatRate, vatAmount, total, date, status: 'Yaratildi', createdAt, transaction });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/invoices/:id', authenticate, requireRole('manager', 'admin'), async (req, res) => {
+    try {
+        await dbRun('DELETE FROM invoices WHERE id = ?', [req.params.id]);
+        res.json({ message: 'Invoice deleted' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ==================== PRODUCTION RECIPES (BOM) ====================
+
+app.get('/api/production/recipes', authenticate, async (req, res) => {
+    try {
+        const rows = await dbAll('SELECT * FROM production_recipes ORDER BY name');
+        res.json(rows.map(r => ({ ...r, materials: JSON.parse(r.materials || '[]') })));
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/production/recipes', authenticate, async (req, res) => {
+    try {
+        const { name, finishedProductId, materials } = req.body;
+        if (!name || !finishedProductId || !Array.isArray(materials)) {
+            return res.status(400).json({ error: 'name, finishedProductId and materials are required' });
+        }
+        const id = randomUUID();
+        const createdAt = new Date().toISOString();
+        await dbRun('INSERT INTO production_recipes (id, name, finishedProductId, materials, createdAt) VALUES (?, ?, ?, ?, ?)',
+            [id, name, finishedProductId, JSON.stringify(materials), createdAt]);
+        res.json({ id, name, finishedProductId, materials, createdAt });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/production/recipes/:id', authenticate, async (req, res) => {
+    try {
+        const { name, finishedProductId, materials } = req.body;
+        if (!name || !finishedProductId || !Array.isArray(materials)) {
+            return res.status(400).json({ error: 'name, finishedProductId and materials are required' });
+        }
+        await dbRun('UPDATE production_recipes SET name = ?, finishedProductId = ?, materials = ? WHERE id = ?',
+            [name, finishedProductId, JSON.stringify(materials), req.params.id]);
+        res.json({ id: req.params.id, name, finishedProductId, materials });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/production/recipes/:id', authenticate, requireRole('manager', 'admin'), async (req, res) => {
+    try {
+        await dbRun('DELETE FROM production_recipes WHERE id = ?', [req.params.id]);
+        res.json({ message: 'Recipe deleted' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ==================== PRODUCTION ORDERS ====================
+
+app.get('/api/production/orders', authenticate, async (req, res) => {
+    try {
+        const rows = await dbAll('SELECT * FROM production_orders ORDER BY date DESC');
+        res.json(rows.map(r => ({ ...r, materials: JSON.parse(r.materials || '[]') })));
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Consumes material stock, produces finished-product stock, mirrors the previous
+// localStorage addProductionOrder logic (js/storage.js).
+app.post('/api/production/orders', authenticate, async (req, res) => {
+    try {
+        const { finishedProductId, producedQuantity, materials, date, description, recipeId } = req.body;
+        if (!finishedProductId || !producedQuantity || producedQuantity <= 0 || !Array.isArray(materials) || materials.length === 0) {
+            return res.status(400).json({ error: 'finishedProductId, producedQuantity and materials are required' });
+        }
+
+        let productionCost = 0;
+        for (const item of materials) {
+            const product = await dbGet('SELECT * FROM products WHERE id = ?', [item.productId]);
+            if (!product) return res.status(400).json({ error: `Material product not found: ${item.productId}` });
+            if (product.stock < item.quantity) {
+                return res.status(400).json({ error: `Not enough stock for material "${product.name}". Available: ${product.stock}` });
+            }
+            productionCost += (product.purchasePrice || 0) * item.quantity;
+        }
+
+        const id = randomUUID();
+        const createdAt = new Date().toISOString();
+        const materialCostPerUnit = producedQuantity > 0 ? productionCost / producedQuantity : 0;
+
+        await dbRun(
+            `INSERT INTO production_orders (id, finishedProductId, producedQuantity, materials, date, description, recipeId, productionCost, materialCostPerUnit, createdAt)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [id, finishedProductId, producedQuantity, JSON.stringify(materials), date || createdAt, description || '', recipeId || '', productionCost, materialCostPerUnit, createdAt]
+        );
+
+        for (const item of materials) {
+            await dbRun('UPDATE products SET stock = stock - ? WHERE id = ?', [item.quantity, item.productId]);
+        }
+        await dbRun('UPDATE products SET stock = stock + ? WHERE id = ?', [producedQuantity, finishedProductId]);
+
+        res.json({ id, finishedProductId, producedQuantity, materials, date, description, recipeId, productionCost, materialCostPerUnit, createdAt });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/production/orders/:id', authenticate, requireRole('manager', 'admin'), async (req, res) => {
+    try {
+        const order = await dbGet('SELECT * FROM production_orders WHERE id = ?', [req.params.id]);
+        if (!order) return res.status(404).json({ error: 'Order not found' });
+        const materials = JSON.parse(order.materials || '[]');
+
+        // Reverse the stock effect, matching the previous deleteProductionOrder behaviour
+        await dbRun('UPDATE products SET stock = MAX(0, stock - ?) WHERE id = ?', [order.producedQuantity, order.finishedProductId]);
+        for (const item of materials) {
+            await dbRun('UPDATE products SET stock = stock + ? WHERE id = ?', [item.quantity, item.productId]);
+        }
+        await dbRun('DELETE FROM production_orders WHERE id = ?', [req.params.id]);
+        res.json({ message: 'Production order deleted, stock reverted' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ==================== EMPLOYEES ====================
+
+app.get('/api/employees', authenticate, async (req, res) => {
+    try { res.json(await dbAll('SELECT * FROM employees ORDER BY name')); }
+    catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/employees', authenticate, async (req, res) => {
+    try {
+        const { name, position, salary, taxRate } = req.body;
+        if (!name) return res.status(400).json({ error: 'name is required' });
+        const id = randomUUID();
+        const createdAt = new Date().toISOString();
+        const settings = await getSettingsObject();
+        const resolvedTaxRate = taxRate !== undefined && taxRate !== '' ? taxRate : parseFloat(settings.taxNDFL);
+        await dbRun('INSERT INTO employees (id, name, position, salary, taxRate, createdAt) VALUES (?, ?, ?, ?, ?, ?)',
+            [id, name, position || '', salary || 0, resolvedTaxRate, createdAt]);
+        res.json({ id, name, position, salary, taxRate: resolvedTaxRate, createdAt });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/employees/:id', authenticate, async (req, res) => {
+    try {
+        const { name, position, salary, taxRate } = req.body;
+        if (!name) return res.status(400).json({ error: 'name is required' });
+        await dbRun('UPDATE employees SET name = ?, position = ?, salary = ?, taxRate = ? WHERE id = ?',
+            [name, position || '', salary || 0, taxRate || 0, req.params.id]);
+        res.json({ id: req.params.id, name, position, salary, taxRate });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/employees/:id', authenticate, requireRole('manager', 'admin'), async (req, res) => {
+    try {
+        await dbRun('DELETE FROM employees WHERE id = ?', [req.params.id]);
+        res.json({ message: 'Employee deleted' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ==================== PAYROLL ====================
+
+app.get('/api/payroll', authenticate, async (req, res) => {
+    try { res.json(await dbAll('SELECT * FROM payroll_records ORDER BY date DESC')); }
+    catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Splits JShDS (withheld from the employee) from ISHV/social tax (paid by the employer on
+// top of gross salary) and books them as two separate expense transactions - mirrors the
+// previous handleAddPayrollRecord logic in js/app.js.
+app.post('/api/payroll', authenticate, async (req, res) => {
+    try {
+        const { employeeId, period, bonus, deductions } = req.body;
+        if (!employeeId || !period) return res.status(400).json({ error: 'employeeId and period are required' });
+
+        const employee = await dbGet('SELECT * FROM employees WHERE id = ?', [employeeId]);
+        if (!employee) return res.status(404).json({ error: 'Employee not found' });
+
+        const settings = await getSettingsObject();
+        const gross = (parseFloat(employee.salary) || 0) + (parseFloat(bonus) || 0);
+        const ndflRate = parseFloat(employee.taxRate) || 0;
+        const tax = gross * (ndflRate / 100);
+        const socialTaxRate = parseFloat(settings.taxSSV) || 0;
+        const socialTax = gross * (socialTaxRate / 100);
+        const ded = parseFloat(deductions) || 0;
+        const net = Math.max(0, gross - tax - ded);
+
+        const id = randomUUID();
+        const date = new Date().toISOString();
+        await dbRun(
+            `INSERT INTO payroll_records (id, employeeId, period, gross, tax, socialTax, deductions, net, date, createdAt)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [id, employeeId, period, gross, tax, socialTax, ded, net, date, date]
+        );
+
+        const salaryTx = await insertTransaction({
+            date, type: 'expense', category: 'salaries',
+            description: `Ish haqi (netto): ${employee.name} (${period})`, amount: net, payrollRecordId: id
+        });
+
+        let socialTaxTx = null;
+        if (socialTax > 0) {
+            socialTaxTx = await insertTransaction({
+                date, type: 'expense', category: 'social_tax',
+                description: `Ijtimoiy soliq - ISHV (${socialTaxRate}%): ${employee.name} (${period})`, amount: socialTax, payrollRecordId: id
+            });
+        }
+
+        res.json({ id, employeeId, period, gross, tax, socialTax, deductions: ded, net, date, salaryTx, socialTaxTx });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/payroll/:id', authenticate, requireRole('manager', 'admin'), async (req, res) => {
+    try {
+        await dbRun('DELETE FROM payroll_records WHERE id = ?', [req.params.id]);
+        await dbRun('DELETE FROM transactions WHERE payrollRecordId = ?', [req.params.id]);
+        res.json({ message: 'Payroll record deleted' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ==================== SETTINGS ====================
+
+app.get('/api/settings', authenticate, async (req, res) => {
+    try { res.json(await getSettingsObject()); }
+    catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/settings', authenticate, requireRole('admin'), async (req, res) => {
+    try {
+        const entries = Object.entries(req.body || {});
+        for (const [key, value] of entries) {
+            await dbRun('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [key, String(value)]);
+        }
+        res.json(await getSettingsObject());
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ==================== COMPANY INFO (Hujjatlar uchun rekvizitlar) ====================
+// Korxona rekvizitlari ham `settings` jadvalida saqlanadi (bir xil global-konfiguratsiya jadvali)
+
+app.get('/api/company-info', authenticate, async (req, res) => {
+    try {
+        const rows = await dbAll('SELECT key, value FROM settings WHERE key IN (' + COMPANY_INFO_KEYS.map(() => '?').join(',') + ')', COMPANY_INFO_KEYS);
+        const info = { ...DEFAULT_COMPANY_INFO };
+        rows.forEach(r => { info[r.key] = r.value; });
+        res.json(info);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/company-info', authenticate, async (req, res) => {
+    try {
+        for (const key of COMPANY_INFO_KEYS) {
+            if (req.body[key] !== undefined) {
+                await dbRun('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [key, String(req.body[key])]);
+            }
+        }
+        const rows = await dbAll('SELECT key, value FROM settings WHERE key IN (' + COMPANY_INFO_KEYS.map(() => '?').join(',') + ')', COMPANY_INFO_KEYS);
+        const info = { ...DEFAULT_COMPANY_INFO };
+        rows.forEach(r => { info[r.key] = r.value; });
+        res.json(info);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ==================== DOCUMENTS (shartnoma, akt, ishonchnoma, kassa order) ====================
+
+app.get('/api/documents', authenticate, async (req, res) => {
+    try { res.json(await dbAll('SELECT * FROM documents ORDER BY createdAt DESC')); }
+    catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/documents/:id', authenticate, async (req, res) => {
+    try {
+        const row = await dbGet('SELECT * FROM documents WHERE id = ?', [req.params.id]);
+        if (!row) return res.status(404).json({ error: 'Document not found' });
+        res.json(row);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/documents', authenticate, async (req, res) => {
+    try {
+        const { type, number, date, clientId, html } = req.body;
+        if (!type || !html) return res.status(400).json({ error: 'type and html are required' });
+        const id = randomUUID();
+        const createdAt = new Date().toISOString();
+        await dbRun('INSERT INTO documents (id, type, number, date, clientId, html, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [id, type, number || '', date || createdAt, clientId || '', html, createdAt]);
+        res.json({ id, type, number, date, clientId, html, createdAt });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/documents/:id', authenticate, async (req, res) => {
+    try {
+        await dbRun('DELETE FROM documents WHERE id = ?', [req.params.id]);
+        res.json({ message: 'Document deleted' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ==================== STATISTICS ====================
+
+app.get('/api/statistics', authenticate, async (req, res) => {
+    try {
+        const transactions = await dbAll('SELECT * FROM transactions');
+        const settings = await getSettingsObject();
+
+        const amountOf = (t) => (t.amount_base !== null && t.amount_base !== undefined ? t.amount_base : t.amount) || 0;
+        const totalIncome = transactions.filter(t => t.type === 'income').reduce((sum, t) => sum + amountOf(t), 0);
+        const totalExpense = transactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + amountOf(t), 0);
+        const grossProfit = totalIncome - totalExpense;
+
+        const isSimplified = settings.taxRegime === 'soddalashtirilgan';
+        const totalTax = isSimplified
+            ? totalIncome * ((parseFloat(settings.taxTurnover) || 0) / 100)
+            : (grossProfit > 0 ? grossProfit * ((parseFloat(settings.taxIncome) || 0) / 100) : 0);
+
+        res.json({ totalIncome, totalExpense, totalTax, netProfit: grossProfit - totalTax });
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ==================== ERROR HANDLING ====================
@@ -552,26 +1066,7 @@ app.use((err, req, res, next) => {
 
 app.listen(PORT, () => {
     console.log(`\n📊 Accounting Server running on http://localhost:${PORT}`);
-    console.log(`\n📚 API Documentation:`);
-    console.log(`  POST   /api/auth/login              - Login with credentials`);
-    console.log(`  POST   /api/auth/register           - Register new user`);
-    console.log(`  GET    /api/clients                 - Get all clients`);
-    console.log(`  POST   /api/clients                 - Add client`);
-    console.log(`  DELETE /api/clients/:id             - Delete client`);
-    console.log(`  GET    /api/products                - Get all products`);
-    console.log(`  POST   /api/products                - Add product`);
-    console.log(`  DELETE /api/products/:id            - Delete product`);
-    console.log(`  GET    /api/transactions            - Get transactions`);
-    console.log(`  POST   /api/transactions            - Add transaction`);
-    console.log(`  DELETE /api/transactions/:id        - Delete transaction`);
-    console.log(`  GET    /api/employees               - Get employees`);
-    console.log(`  POST   /api/employees               - Add employee`);
-    console.log(`  DELETE /api/employees/:id           - Delete employee`);
-    console.log(`  GET    /api/payroll                 - Get payroll records`);
-    console.log(`  POST   /api/payroll                 - Add payroll record`);
-    console.log(`  GET    /api/statistics              - Get financial statistics\n`);
-    console.log(`  GET    /api/currencies              - List supported currencies`);
-    console.log(`  POST   /api/currencies              - Add or update currency (admin)`);
-    console.log(`  GET    /api/exchange-rates         - Get latest exchange rate (query: from,to[,date])`);
-    console.log(`  POST   /api/exchange-rates        - Add exchange rate (admin)`);
+    console.log(`\n📚 API: /api/auth, /api/clients, /api/suppliers, /api/products, /api/inventory-movements,`);
+    console.log(`  /api/transactions, /api/invoices, /api/production/recipes, /api/production/orders,`);
+    console.log(`  /api/employees, /api/payroll, /api/settings, /api/statistics, /api/currencies, /api/exchange-rates\n`);
 });

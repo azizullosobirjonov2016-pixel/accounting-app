@@ -181,7 +181,7 @@ class DocumentManager {
     }
 
     buildInvoiceFaktura(data) {
-        const { company, client, date, number, items, currency } = data;
+        const { company, client, date, number, items, currency, vatRate } = data;
         return `
             <div class="doc-header">
                 <div class="doc-title">ELEKTRON HISOB-FAKTURA</div>
@@ -193,7 +193,7 @@ class DocumentManager {
             </div>
             ${this.lineItemsTable(items, currency)}
             <p><strong>Summasi so'z bilan:</strong> ${this.amountInWords(this.sumItems(items))}</p>
-            <p>QQS stavkasi: ${(typeof storage !== 'undefined' ? storage.getSettings().taxVAT : 12) || 0}%</p>
+            <p>QQS stavkasi: ${vatRate || 0}%</p>
             ${this.signatureBlock(company)}
         `;
     }
