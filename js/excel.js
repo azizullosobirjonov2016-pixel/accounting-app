@@ -70,20 +70,6 @@ class ExcelManager {
                     { key: 'salary', label: 'Oylik maosh', required: false, type: 'number' },
                     { key: 'taxRate', label: 'JShDS stavkasi (%)', required: false, type: 'number' }
                 ]
-            },
-            invoices: {
-                sheetName: 'Savdo',
-                filePrefix: 'Savdo_Hujjatlari',
-                columns: [
-                    { key: 'number', label: 'Invoice №', required: false, type: 'string' },
-                    { key: 'date', label: 'Sana', required: false, type: 'string' },
-                    { key: 'clientName', label: 'Mijoz', required: false, type: 'string' },
-                    { key: 'subtotal', label: 'Summa (QQSsiz)', required: false, type: 'number' },
-                    { key: 'vatAmount', label: 'QQS summasi', required: false, type: 'number' },
-                    { key: 'total', label: 'Jami (QQS bilan)', required: false, type: 'number' },
-                    { key: 'status', label: 'Holat', required: false, type: 'string' },
-                    { key: 'description', label: 'Tavsif', required: false, type: 'string' }
-                ]
             }
         };
     }

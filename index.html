@@ -62,10 +62,11 @@
                 <button class="nav-btn" data-tab="clients">Mijozlar</button>
                 <button class="nav-btn" data-tab="suppliers">Yetkazib Beruvchilar</button>
                 <button class="nav-btn" data-tab="transactions">Tranzaksiyalar</button>
-                <button class="nav-btn" data-tab="sales">Savdo</button>
+                <button class="nav-btn" data-tab="sales">📨 Elektron hujjatlar almashinuvi</button>
                 <button class="nav-btn" data-tab="payroll">👥 Ish haqi</button>
                 <button class="nav-btn" data-tab="production">Ishlab chiqarish</button>
                 <button class="nav-btn" data-tab="reports">Hisobotlar</button>
+                <button class="nav-btn" data-tab="taxreports">🧮 Soliq hisobotlari</button>
                 <button class="nav-btn" data-tab="documents">📄 Hujjatlar</button>
                 <button class="nav-btn" data-tab="company">🏢 Tashkilot</button>
                 <button class="nav-btn" data-tab="settings">Sozlamalar</button>
@@ -517,71 +518,47 @@
             </div>
         </div>
 
-        <!-- SALES TAB -->
+        <!-- ELEKTRON HUJJATLAR ALMASHINUVI TAB (Savdo o'rnida) -->
         <div class="tab-content" id="sales">
-            <h2>🧾 Savdo va Sotuv Hujjatlari</h2>
+            <h2>📨 Elektron hujjatlar almashinuvi</h2>
+            <p class="excel-hint">"📄 Hujjatlar" bo'limida shakllantirilgan va saqlangan barcha rasmiy hujjatlar (hisob-faktura, akt, shartnoma, kassa orderi, ishonchnoma, solishtirma dalolatnoma) shu yerda yagona ro'yxatda kuzatiladi — Didox uslubidagi elektron hujjat aylanish holati bilan.</p>
 
-            <form id="invoiceForm" class="form-section">
-                <h3>Yangi Sotuv Hujjati</h3>
-                <div class="form-grid">
-                    <div>
-                        <label>Invoice №:</label>
-                        <input type="text" id="invoiceNumber" readonly placeholder="Avtomatik son">
-                    </div>
-                    <div>
-                        <label>Sana:</label>
-                        <input type="date" id="invoiceDate" required>
-                    </div>
-                    <div>
-                        <label>Mijoz:</label>
-                        <select id="invoiceClient" required>
-                            <option value="">-- Tanlang --</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label>Valyuta (hisob-faktura):</label>
-                        <select id="invoiceCurrency">
-                            <option value="">-- Tanlang --</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label>Xarid / Sotuv maydoni:</label>
-                        <input type="text" id="invoiceDescription" placeholder="Sotuv tavsifi yoki buyurtma №">
-                    </div>
-                </div>
+            <div class="doc-exchange-stats" id="docExchangeStats"></div>
 
-                <div class="production-materials">
-                    <h4>Sotuv mahsulotlari</h4>
-                    <div id="invoiceLineRows"></div>
-                    <button type="button" class="btn btn-secondary" id="addInvoiceLineBtn">Mahsulot qo'shish</button>
-                </div>
-
-                <div class="production-cost-summary">
-                    <p><strong>Jami sotuv qiymati:</strong> <span id="invoiceTotalPreview">0 so'm</span></p>
-                </div>
-
-                <button type="submit" class="btn btn-primary">Invoice yaratish</button>
-            </form>
-
-            <div class="production-list">
-                <h3>Sotuv hujjatlari</h3>
-                <div class="excel-toolbar">
-                    <button class="btn btn-secondary" id="invoicesExportBtn">📤 Excel'ga eksport</button>
-                </div>
-                <table class="transactions-table" id="invoiceTable">
-                    <thead>
-                        <tr>
-                            <th>#</th>
-                            <th>Sana</th>
-                            <th>Mijoz</th>
-                            <th>Jami</th>
-                            <th>Status</th>
-                            <th>Amallar</th>
-                        </tr>
-                    </thead>
-                    <tbody id="invoiceTableBody"></tbody>
-                </table>
+            <div class="doc-exchange-toolbar">
+                <input type="text" id="docExchangeSearch" placeholder="🔍 Raqami yoki kontragent nomi bo'yicha qidirish...">
+                <select id="docExchangeTypeFilter">
+                    <option value="">Barcha turlar</option>
+                    <option value="invoice-faktura">🧾 Elektron hisob-faktura</option>
+                    <option value="act">📝 Bajarilgan ish/xizmat akti</option>
+                    <option value="contract">📃 Shartnoma</option>
+                    <option value="cash-in">💵 Kassa kirim orderi</option>
+                    <option value="cash-out">💸 Kassa chiqim orderi</option>
+                    <option value="power-of-attorney">🪪 Ishonchnoma</option>
+                    <option value="reconciliation-act">🔄 Solishtirma dalolatnoma</option>
+                </select>
+                <select id="docExchangeStatusFilter">
+                    <option value="">Barcha holatlar</option>
+                    <option value="created">Yaratildi</option>
+                    <option value="sent">Yuborildi</option>
+                    <option value="signed">Imzolandi</option>
+                    <option value="rejected">Rad etildi</option>
+                </select>
             </div>
+
+            <table class="transactions-table" id="docExchangeTable">
+                <thead>
+                    <tr>
+                        <th>Hujjat turi</th>
+                        <th>Raqami</th>
+                        <th>Sana</th>
+                        <th>Kontragent</th>
+                        <th>Holati</th>
+                        <th>Amallar</th>
+                    </tr>
+                </thead>
+                <tbody id="docExchangeTableBody"></tbody>
+            </table>
         </div>
 
         <!-- PAYROLL TAB -->
@@ -818,6 +795,44 @@
             </div>
         </div>
 
+        <!-- TAX REPORTS TAB -->
+        <div class="tab-content" id="taxreports">
+            <h2>🧮 Soliq hisobotlari</h2>
+            <p class="excel-hint">soliq.uz orqali topshiriladigan rasmiy deklaratsiya shakllari andazasida — ma'lumotlar ilovadagi tranzaksiya, ish haqi va tashkilot rekvizitlaridan avtomatik hisoblanadi. Rasmiy topshirishdan oldin soliq.uz shaxsiy kabinetingizda tekshirib chiqing.</p>
+
+            <div class="report-controls">
+                <h3>Hisobot Davri:</h3>
+                <div class="period-selector">
+                    <label>
+                        <input type="radio" name="taxPeriod" value="month" checked> Oy boyicha
+                    </label>
+                    <label>
+                        <input type="radio" name="taxPeriod" value="quarter"> Chorak boyicha
+                    </label>
+                    <label>
+                        <input type="radio" name="taxPeriod" value="year"> Yil boyicha
+                    </label>
+                    <label>
+                        <input type="radio" name="taxPeriod" value="custom"> Maxsus davr
+                    </label>
+                </div>
+
+                <div id="taxCustomPeriod" style="display:none; margin-top: 1rem;">
+                    <label>Boshlanish sanasi:</label>
+                    <input type="date" id="taxReportFromDate">
+                    <label>Bitish sanasi:</label>
+                    <input type="date" id="taxReportToDate">
+                </div>
+
+                <button class="btn btn-primary" id="generateTaxReport">Hisobotlarni shakllantirish</button>
+                <button class="btn btn-secondary" id="printTaxReport">🖨️ Chop etish</button>
+            </div>
+
+            <div id="taxReportContent" class="report-content document-preview">
+                <!-- Soliq hisobotlari bu yerda chiqariladi -->
+            </div>
+        </div>
+
         <!-- DOCUMENTS TAB -->
         <div class="tab-content" id="documents">
             <h2>📄 Hujjatlar (Soliq Kodeksi bo'yicha majburiy shakllar)</h2>
@@ -899,9 +914,10 @@
                 <div id="documentPreview" class="document-preview"></div>
             </div>
 
-            <div class="settings-section">
+            <div class="settings-section doc-exchange-pointer">
                 <h3>Saqlangan Hujjatlar</h3>
-                <div id="savedDocumentsList" class="list-container"></div>
+                <p class="excel-hint">Barcha saqlangan hujjatlar va ularning almashinuv holati "📨 Elektron hujjatlar almashinuvi" bo'limida ko'rinadi.</p>
+                <button type="button" class="btn btn-secondary" onclick="app.switchTab('sales')">📨 Elektron hujjatlar almashinuviga o'tish</button>
             </div>
         </div>
 

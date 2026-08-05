@@ -146,6 +146,7 @@ class APIClient {
     getDocuments() { return this.request('GET', '/documents'); }
     getDocumentById(id) { return this.request('GET', `/documents/${id}`); }
     addDocument(doc) { return this.request('POST', '/documents', doc); }
+    updateDocumentStatus(id, status) { return this.request('PUT', `/documents/${id}/status`, { status }); }
     deleteDocument(id) { return this.request('DELETE', `/documents/${id}`); }
 
     // ==================== STATISTICS ====================

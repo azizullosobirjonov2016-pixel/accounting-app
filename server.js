@@ -210,6 +210,7 @@ const initializeDatabase = () => {
             date TEXT,
             clientId TEXT,
             supplierId TEXT,
+            status TEXT DEFAULT 'created',
             html TEXT,
             createdAt TEXT NOT NULL
         )`);
@@ -226,6 +227,7 @@ const initializeDatabase = () => {
         addColumnIfNotExists('clients', 'mfo', 'mfo TEXT');
         addColumnIfNotExists('suppliers', 'bankAccount', 'bankAccount TEXT');
         addColumnIfNotExists('suppliers', 'mfo', 'mfo TEXT');
+        addColumnIfNotExists('documents', 'status', "status TEXT DEFAULT 'created'");
         addColumnIfNotExists('transactions', 'payrollRecordId', 'payrollRecordId TEXT');
         addColumnIfNotExists('transactions', 'currency', 'currency TEXT');
         addColumnIfNotExists('transactions', 'amount_base', 'amount_base REAL');
@@ -1027,9 +1029,22 @@ app.post('/api/documents', authenticate, async (req, res) => {
         if (!type || !html) return res.status(400).json({ error: 'type and html are required' });
         const id = randomUUID();
         const createdAt = new Date().toISOString();
-        await dbRun('INSERT INTO documents (id, type, number, date, clientId, supplierId, html, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            [id, type, number || '', date || createdAt, clientId || '', supplierId || '', html, createdAt]);
-        res.json({ id, type, number, date, clientId, supplierId, html, createdAt });
+        await dbRun('INSERT INTO documents (id, type, number, date, clientId, supplierId, status, html, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [id, type, number || '', date || createdAt, clientId || '', supplierId || '', 'created', html, createdAt]);
+        res.json({ id, type, number, date, clientId, supplierId, status: 'created', html, createdAt });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+const DOCUMENT_STATUSES = ['created', 'sent', 'signed', 'rejected'];
+
+app.put('/api/documents/:id/status', authenticate, async (req, res) => {
+    try {
+        const { status } = req.body;
+        if (!DOCUMENT_STATUSES.includes(status)) {
+            return res.status(400).json({ error: `status quyidagilardan biri bo'lishi kerak: ${DOCUMENT_STATUSES.join(', ')}` });
+        }
+        await dbRun('UPDATE documents SET status = ? WHERE id = ?', [status, req.params.id]);
+        res.json({ id: req.params.id, status });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

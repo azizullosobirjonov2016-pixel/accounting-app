@@ -102,19 +102,6 @@ class AccountingApp {
             productCurrency.value = cur;
         }
 
-        const invoiceCurrency = document.getElementById('invoiceCurrency');
-        if (invoiceCurrency) {
-            const cur = invoiceCurrency.value;
-            invoiceCurrency.innerHTML = '<option value="">-- Tanlang --</option>';
-            list.forEach(c => {
-                const opt = document.createElement('option');
-                opt.value = c.code;
-                opt.textContent = `${c.code} — ${c.name}`;
-                invoiceCurrency.appendChild(opt);
-            });
-            invoiceCurrency.value = cur || (list[0] && list[0].code);
-        }
-
         const baseCurrencySelect = document.getElementById('baseCurrency');
         if (baseCurrencySelect) {
             const cur = baseCurrencySelect.value;
@@ -146,9 +133,6 @@ class AccountingApp {
 
         if (transCurrency && !transCurrency.value && defaultCurrency) {
             transCurrency.value = defaultCurrency;
-        }
-        if (invoiceCurrency && !invoiceCurrency.value && defaultCurrency) {
-            invoiceCurrency.value = defaultCurrency;
         }
         if (productCurrency && !productCurrency.value && defaultCurrency) {
             productCurrency.value = defaultCurrency;
@@ -450,7 +434,11 @@ class AccountingApp {
         document.getElementById('filterSearch')?.addEventListener('input', () => this.filterTransactions());
         document.getElementById('clearFilter')?.addEventListener('click', () => this.clearTransactionFilters());
         document.getElementById('transAmount')?.addEventListener('input', () => this.updateTransactionAmountPreview());
-        document.getElementById('invoiceCurrency')?.addEventListener('change', () => this.updateInvoiceTotalPreview());
+
+        // Elektron hujjatlar almashinuvi (Savdo o'rnida)
+        document.getElementById('docExchangeTypeFilter')?.addEventListener('change', () => this.displayDocumentExchange());
+        document.getElementById('docExchangeStatusFilter')?.addEventListener('change', () => this.displayDocumentExchange());
+        document.getElementById('docExchangeSearch')?.addEventListener('input', () => this.displayDocumentExchange());
 
         // Production actions
         document.getElementById('productionForm').addEventListener('submit', (e) => this.handleAddProductionOrder(e));
@@ -476,6 +464,13 @@ class AccountingApp {
         document.getElementById('generateReport').addEventListener('click', () => this.generateReport());
         document.getElementById('exportReport').addEventListener('click', () => this.exportReport());
 
+        // Soliq hisobotlari davr selektori
+        document.querySelectorAll('input[name="taxPeriod"]').forEach(radio => {
+            radio.addEventListener('change', (e) => this.handleTaxPeriodChange(e));
+        });
+        document.getElementById('generateTaxReport')?.addEventListener('click', () => this.generateTaxReports());
+        document.getElementById('printTaxReport')?.addEventListener('click', () => window.print());
+
         // Backup/Restore
         document.getElementById('backupData').addEventListener('click', () => this.backupData());
         document.getElementById('restoreData').addEventListener('click', () => {
@@ -487,10 +482,7 @@ class AccountingApp {
         // Set today's date for date inputs
         const today = new Date().toISOString().split('T')[0];
         document.getElementById('transDate').value = today;
-        document.getElementById('invoiceDate').value = today;
 
-        document.getElementById('invoiceForm').addEventListener('submit', (e) => this.handleAddInvoice(e));
-        document.getElementById('addInvoiceLineBtn').addEventListener('click', () => this.addInvoiceLineRow());
         document.getElementById('employeeForm').addEventListener('submit', (e) => this.handleAddEmployee(e));
         document.getElementById('payrollForm').addEventListener('submit', (e) => this.handleAddPayrollRecord(e));
         // Set up payroll controls
@@ -505,7 +497,6 @@ class AccountingApp {
         this.setupExcelToolbar('suppliers', this.exportSuppliersToExcel, this.importSuppliersFromExcel);
         this.setupExcelToolbar('transactions', this.exportTransactionsToExcel, this.importTransactionsFromExcel);
         this.setupExcelToolbar('employees', this.exportEmployeesToExcel, this.importEmployeesFromExcel);
-        document.getElementById('invoicesExportBtn')?.addEventListener('click', () => this.exportInvoicesToExcel());
 
         // Documents (Hujjatlar)
         document.getElementById('companyInfoForm')?.addEventListener('submit', (e) => this.handleSaveCompanyInfo(e));
@@ -551,29 +542,29 @@ class AccountingApp {
 
         this.currentTab = tabName;
 
-        // Load content for tab
+        // Load content for tab (promise qaytariladi, kerak bo'lsa chaqiruvchi await qila oladi)
         if (tabName === 'dashboard') {
-            this.loadDashboard();
+            return this.loadDashboard();
         } else if (tabName === 'inventory') {
-            this.loadInventory();
+            return this.loadInventory();
         } else if (tabName === 'clients') {
-            this.displayClients();
+            return this.displayClients();
         } else if (tabName === 'suppliers') {
-            this.displaySuppliers();
+            return this.displaySuppliers();
         } else if (tabName === 'transactions') {
-            this.displayTransactions();
+            return this.displayTransactions();
         } else if (tabName === 'sales') {
-            this.loadSales();
+            return this.loadSales();
         } else if (tabName === 'payroll') {
-            this.loadPayroll();
+            return this.loadPayroll();
         } else if (tabName === 'production') {
-            this.loadProduction();
+            return this.loadProduction();
         } else if (tabName === 'settings') {
-            this.loadSettings();
+            return this.loadSettings();
         } else if (tabName === 'documents') {
-            this.loadDocuments();
+            return this.loadDocuments();
         } else if (tabName === 'company') {
-            this.loadCompanyInfoForm();
+            return this.loadCompanyInfoForm();
         }
     }
 
@@ -586,7 +577,6 @@ class AccountingApp {
             dateField.value = new Date().toISOString().split('T')[0];
         }
         this.renderDocumentDynamicFields();
-        await this.displaySavedDocuments();
         document.getElementById('documentPreviewSection').style.display = 'none';
     }
 
@@ -896,43 +886,15 @@ class AccountingApp {
             return;
         }
         this.showMessage('Hujjat saqlandi', 'success');
-        await this.displaySavedDocuments();
-    }
-
-    async displaySavedDocuments() {
-        const container = document.getElementById('savedDocumentsList');
-        if (!container) return;
-        const [documents, clients, suppliers] = await Promise.all([api.getDocuments(), api.getClients(), api.getSuppliers()]);
-        documents.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-        const clientMap = new Map(clients.map(c => [c.id, c]));
-        const supplierMap = new Map(suppliers.map(s => [s.id, s]));
-        container.innerHTML = '';
-        if (documents.length === 0) {
-            container.innerHTML = '<div class="empty-state"><p>Hali hujjat saqlanmagan</p></div>';
-            return;
-        }
-        documents.forEach(doc => {
-            const client = doc.clientId ? clientMap.get(doc.clientId) : null;
-            const supplier = doc.supplierId ? supplierMap.get(doc.supplierId) : null;
-            const partyLine = client ? ' | Mijoz: ' + client.name : (supplier ? ' | Yetkazib beruvchi: ' + supplier.name : '');
-            const item = document.createElement('div');
-            item.className = 'list-item';
-            item.innerHTML = `
-                <h4>${documentManager.typeLabels[doc.type] || doc.type}</h4>
-                <p><strong>№</strong> ${doc.number}</p>
-                <p>Sana: ${documentManager.formatDate(doc.date)}${partyLine}</p>
-                <div class="list-item-actions">
-                    <button class="btn btn-secondary" onclick="app.viewSavedDocument('${doc.id}')">Ko'rish</button>
-                    <button class="btn btn-danger" onclick="app.deleteSavedDocument('${doc.id}')">O'chirish</button>
-                </div>
-            `;
-            container.appendChild(item);
-        });
+        await this.displayDocumentExchange();
     }
 
     async viewSavedDocument(id) {
         const doc = await api.getDocumentById(id).catch(() => null);
         if (!doc) return;
+        if (this.currentTab !== 'documents') {
+            await this.switchTab('documents');
+        }
         document.getElementById('documentPreview').innerHTML = doc.html;
         const previewSection = document.getElementById('documentPreviewSection');
         previewSection.style.display = '';
@@ -948,7 +910,7 @@ class AccountingApp {
             this.showMessage('O\'chirishda xato: ' + err.message, 'error');
             return;
         }
-        await this.displaySavedDocuments();
+        await this.displayDocumentExchange();
     }
 
     // PAYROLL
@@ -1241,33 +1203,21 @@ class AccountingApp {
     async updateClientDropdowns() {
         const clients = await api.getClients();
         const transSelect = document.getElementById('transClient');
-        const invoiceSelect = document.getElementById('invoiceClient');
         const transValue = transSelect ? transSelect.value : '';
-        const invoiceValue = invoiceSelect ? invoiceSelect.value : '';
 
         if (transSelect) {
             transSelect.innerHTML = '<option value="">-- Tanlang --</option>';
         }
-        if (invoiceSelect) {
-            invoiceSelect.innerHTML = '<option value="">-- Tanlang --</option>';
-        }
 
         clients.forEach(client => {
-            const option1 = document.createElement('option');
-            option1.value = client.id;
-            option1.textContent = client.name;
-            if (transSelect) transSelect.appendChild(option1.cloneNode(true));
-
-            if (invoiceSelect) {
-                const option2 = document.createElement('option');
-                option2.value = client.id;
-                option2.textContent = client.name;
-                invoiceSelect.appendChild(option2);
-            }
+            if (!transSelect) return;
+            const option = document.createElement('option');
+            option.value = client.id;
+            option.textContent = client.name;
+            transSelect.appendChild(option);
         });
 
         if (transSelect) transSelect.value = transValue;
-        if (invoiceSelect) invoiceSelect.value = invoiceValue;
     }
 
     async deleteClient(clientId) {
@@ -1956,283 +1906,113 @@ class AccountingApp {
         }
     }
 
-    // SALES
+    // ELEKTRON HUJJATLAR ALMASHINUVI (Didox uslubida) — Hujjatlar tab'ida shakllantirilgan
+    // barcha hujjatlarning yagona kuzatuv jadvali (Savdo bo'limi o'rnida)
     async loadSales() {
-        const invoiceNumberField = document.getElementById('invoiceNumber');
-        if (invoiceNumberField) {
-            invoiceNumberField.value = `INV-${Date.now()}`;
-        }
-
-        const today = new Date().toISOString().split('T')[0];
-        const invoiceDate = document.getElementById('invoiceDate');
-        if (invoiceDate) {
-            invoiceDate.value = today;
-        }
-
-        const defaultCurrency = (this.settings && this.settings.defaultCurrency) || 'UZS';
-        const invoiceCurrency = document.getElementById('invoiceCurrency');
-        if (invoiceCurrency) {
-            invoiceCurrency.value = defaultCurrency;
-        }
-
-        const rowContainer = document.getElementById('invoiceLineRows');
-        if (rowContainer) {
-            rowContainer.innerHTML = '';
-        }
-        await this.addInvoiceLineRow();
-        await this.updateClientDropdowns();
-        await this.displayInvoices();
-        this.updateInvoiceTotalPreview();
+        await this.displayDocumentExchange();
     }
 
-    async updateInvoiceDropdowns() {
-        const products = await api.getProducts();
-        const selects = document.querySelectorAll('.invoice-product-select');
-
-        selects.forEach(select => {
-            const currentValue = select.value;
-            select.innerHTML = '<option value="">-- Tanlang --</option>';
-            products.forEach(product => {
-                const option = document.createElement('option');
-                option.value = product.id;
-                option.textContent = `${product.name} (${product.unit}) - ${this.formatNumber(product.sellingPrice)} so'm`;
-                select.appendChild(option);
-            });
-            select.value = currentValue;
-        });
+    docExchangeTypeIcon(type) {
+        const icons = {
+            'invoice-faktura': '🧾', 'act': '📝', 'contract': '📃', 'cash-in': '💵',
+            'cash-out': '💸', 'power-of-attorney': '🪪', 'reconciliation-act': '🔄'
+        };
+        return icons[type] || '📄';
     }
 
-    async addInvoiceLineRow(item = {}) {
-        const container = document.getElementById('invoiceLineRows');
-        const row = document.createElement('div');
-        row.className = 'material-row';
-        row.innerHTML = `
-            <div class="form-grid material-row-grid">
-                <div>
-                    <label>Mahsulot:</label>
-                    <select class="invoice-product-select" required>
-                        <option value="">-- Tanlang --</option>
-                    </select>
-                </div>
-                <div>
-                    <label>Soni:</label>
-                    <input type="number" class="invoice-product-quantity" min="1" value="${item.quantity || 1}" required>
-                </div>
-                <div>
-                    <label>Birim narx:</label>
-                    <input type="number" class="invoice-product-price" min="0" value="${item.price || 0}" required>
-                </div>
-                <div class="material-row-actions">
-                    <button type="button" class="btn btn-danger remove-material-row">O'chirish</button>
-                </div>
-            </div>
-        `;
-        container.appendChild(row);
-        await this.updateInvoiceDropdowns();
-
-        const productSelect = row.querySelector('.invoice-product-select');
-        const quantityInput = row.querySelector('.invoice-product-quantity');
-        const priceInput = row.querySelector('.invoice-product-price');
-
-        if (productSelect && item.productId) {
-            productSelect.value = item.productId;
-        }
-        if (priceInput && item.price) {
-            priceInput.value = item.price;
-        }
-
-        const updatePreview = () => this.updateInvoiceTotalPreview();
-        productSelect.addEventListener('change', async () => {
-            const product = await api.getProductById(productSelect.value).catch(() => null);
-            if (product) {
-                priceInput.value = product.sellingPrice || 0;
-            }
-            updatePreview();
-        });
-        quantityInput.addEventListener('input', updatePreview);
-        priceInput.addEventListener('input', updatePreview);
-
-        row.querySelector('.remove-material-row').addEventListener('click', () => {
-            row.remove();
-            this.updateInvoiceTotalPreview();
-        });
+    docExchangeStatusMeta(status) {
+        const meta = {
+            created: { label: 'Yaratildi', cls: 'doc-status-created' },
+            sent: { label: 'Yuborildi', cls: 'doc-status-sent' },
+            signed: { label: 'Imzolandi', cls: 'doc-status-signed' },
+            rejected: { label: 'Rad etildi', cls: 'doc-status-rejected' }
+        };
+        return meta[status] || meta.created;
     }
 
-    // Soddalashtirilgan rejimdagi korxonalar QQS to'lovchisi emas
-    getInvoiceVatRate() {
-        const settings = this.settings || {};
-        return settings.taxRegime === 'soddalashtirilgan' ? 0 : (parseFloat(settings.taxVAT) || 0);
-    }
+    async displayDocumentExchange() {
+        const tbody = document.getElementById('docExchangeTableBody');
+        if (!tbody) return;
 
-    updateInvoiceTotalPreview() {
-        const rows = Array.from(document.querySelectorAll('#invoiceLineRows .material-row'));
-        let subtotal = 0;
-        rows.forEach(row => {
-            const qty = parseFloat(row.querySelector('.invoice-product-quantity').value) || 0;
-            const price = parseFloat(row.querySelector('.invoice-product-price').value) || 0;
-            subtotal += qty * price;
-        });
-        const vatRate = this.getInvoiceVatRate();
-        const vatAmount = subtotal * (vatRate / 100);
-        const total = subtotal + vatAmount;
-        const invoiceCurrency = document.getElementById('invoiceCurrency')?.value;
-        const fmt = (v) => invoiceCurrency ? this.formatCurrency(v, invoiceCurrency) : this.formatNumber(v) + ' so\'m';
-        document.getElementById('invoiceTotalPreview').textContent = vatRate > 0
-            ? `${fmt(subtotal)} + QQS ${vatRate}% (${fmt(vatAmount)}) = ${fmt(total)}`
-            : fmt(total);
-    }
-
-    async handleAddInvoice(e) {
-        e.preventDefault();
-
-        const number = document.getElementById('invoiceNumber').value;
-        const date = document.getElementById('invoiceDate').value;
-        const clientId = document.getElementById('invoiceClient').value;
-        const description = document.getElementById('invoiceDescription').value;
-        const rows = Array.from(document.querySelectorAll('#invoiceLineRows .material-row'));
-
-        if (!clientId) {
-            this.showMessage('Iltimos, mijozni tanlang', 'error');
-            return;
-        }
-
-        const lineItems = [];
-        for (const row of rows) {
-            const productId = row.querySelector('.invoice-product-select').value;
-            const quantity = parseFloat(row.querySelector('.invoice-product-quantity').value) || 0;
-            const price = parseFloat(row.querySelector('.invoice-product-price').value) || 0;
-            if (!productId || quantity <= 0 || price < 0) {
-                this.showMessage('Iltimos, barcha mahsulot sarlavhalarini to\'ldiring', 'error');
-                return;
-            }
-            lineItems.push({ productId, quantity, price });
-        }
-        if (lineItems.length === 0) {
-            this.showMessage('Iltimos, kamida bitta mahsulot qo\'shing', 'error');
-            return;
-        }
-
-        const invoiceCurrency = document.getElementById('invoiceCurrency')?.value || '';
-
-        // QQS hisoblash, zahirani kamaytirish va daromad tranzaksiyasini yaratish serverda amalga oshadi
-        try {
-            await api.addInvoice({ number, date, clientId, description, lineItems, currency: invoiceCurrency || undefined });
-        } catch (err) {
-            this.showMessage('Invoice yaratishda xato: ' + err.message, 'error');
-            return;
-        }
-
-        document.getElementById('invoiceForm').reset();
-        document.getElementById('invoiceLineRows').innerHTML = '';
-        await this.addInvoiceLineRow();
-        await this.loadDashboard();
-        await this.loadInventory();
-        await this.displayInvoices();
-        await this.updateClientDropdowns();
-        this.showMessage('Invoice muvaffaqiyatli yaratildi', 'success');
-    }
-
-    async displayInvoices() {
-        const [invoices, clients] = await Promise.all([api.getInvoices(), api.getClients()]);
-        invoices.sort((a, b) => new Date(b.date) - new Date(a.date));
+        const [documents, clients, suppliers] = await Promise.all([api.getDocuments(), api.getClients(), api.getSuppliers()]);
+        documents.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
         const clientMap = new Map(clients.map(c => [c.id, c]));
-        const tbody = document.getElementById('invoiceTableBody');
-        tbody.innerHTML = '';
+        const supplierMap = new Map(suppliers.map(s => [s.id, s]));
 
-        if (invoices.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Hali invoice mavjud emas</td></tr>';
+        const statusCounts = { created: 0, sent: 0, signed: 0, rejected: 0 };
+        documents.forEach(d => {
+            const status = d.status || 'created';
+            statusCounts[status] = (statusCounts[status] || 0) + 1;
+        });
+        const statsEl = document.getElementById('docExchangeStats');
+        if (statsEl) {
+            statsEl.innerHTML = `
+                <div class="stat-chip"><strong>${documents.length}</strong> Jami hujjat</div>
+                <div class="stat-chip doc-status-created"><strong>${statusCounts.created}</strong> Yaratildi</div>
+                <div class="stat-chip doc-status-sent"><strong>${statusCounts.sent}</strong> Yuborildi</div>
+                <div class="stat-chip doc-status-signed"><strong>${statusCounts.signed}</strong> Imzolandi</div>
+                <div class="stat-chip doc-status-rejected"><strong>${statusCounts.rejected}</strong> Rad etildi</div>
+            `;
+        }
+
+        const typeFilter = document.getElementById('docExchangeTypeFilter')?.value || '';
+        const statusFilter = document.getElementById('docExchangeStatusFilter')?.value || '';
+        const search = (document.getElementById('docExchangeSearch')?.value || '').toLowerCase().trim();
+
+        const filtered = documents.filter(doc => {
+            if (typeFilter && doc.type !== typeFilter) return false;
+            if (statusFilter && (doc.status || 'created') !== statusFilter) return false;
+            if (search) {
+                const client = doc.clientId ? clientMap.get(doc.clientId) : null;
+                const supplier = doc.supplierId ? supplierMap.get(doc.supplierId) : null;
+                const partyName = (client ? client.name : (supplier ? supplier.name : '')).toLowerCase();
+                if (!`${doc.number} ${partyName}`.toLowerCase().includes(search)) return false;
+            }
+            return true;
+        });
+
+        tbody.innerHTML = '';
+        if (filtered.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="6" class="empty-state">Hujjatlar topilmadi. "📄 Hujjatlar" bo'limida yangi hujjat shakllantiring va saqlang.</td></tr>`;
             return;
         }
 
-        invoices.forEach(invoice => {
-            const client = clientMap.get(invoice.clientId);
-            const totalDisplay = invoice.currency ? this.formatCurrency(invoice.total, invoice.currency) : `${this.formatNumber(invoice.total)} so'm`;
+        filtered.forEach(doc => {
+            const client = doc.clientId ? clientMap.get(doc.clientId) : null;
+            const supplier = doc.supplierId ? supplierMap.get(doc.supplierId) : null;
+            const partyName = client ? client.name : (supplier ? supplier.name : '—');
+            const status = doc.status || 'created';
+            const meta = this.docExchangeStatusMeta(status);
             const row = document.createElement('tr');
             row.innerHTML = `
-                <td>${invoice.number}</td>
-                <td>${new Date(invoice.date).toLocaleDateString('uz-UZ')}</td>
-                <td>${client ? client.name : 'Noma\'lum'}</td>
-                <td><strong>${totalDisplay}</strong></td>
-                <td>${invoice.status}</td>
+                <td>${this.docExchangeTypeIcon(doc.type)} ${documentManager.typeLabels[doc.type] || doc.type}</td>
+                <td>${doc.number}</td>
+                <td>${documentManager.formatDate(doc.date)}</td>
+                <td>${partyName}</td>
                 <td>
-                    <button class="btn btn-secondary" onclick="app.exportInvoice('${invoice.id}')" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;">Chop etish</button>
-                    <button class="btn btn-danger" onclick="app.deleteInvoice('${invoice.id}')" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;">O'chirish</button>
+                    <select class="doc-status-select ${meta.cls}" onchange="app.updateDocumentStatus('${doc.id}', this.value)">
+                        <option value="created" ${status === 'created' ? 'selected' : ''}>Yaratildi</option>
+                        <option value="sent" ${status === 'sent' ? 'selected' : ''}>Yuborildi</option>
+                        <option value="signed" ${status === 'signed' ? 'selected' : ''}>Imzolandi</option>
+                        <option value="rejected" ${status === 'rejected' ? 'selected' : ''}>Rad etildi</option>
+                    </select>
+                </td>
+                <td>
+                    <button class="btn btn-secondary" onclick="app.viewSavedDocument('${doc.id}')" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;">Ko'rish</button>
+                    <button class="btn btn-danger" onclick="app.deleteSavedDocument('${doc.id}')" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;">O'chirish</button>
                 </td>
             `;
             tbody.appendChild(row);
         });
     }
 
-    async exportInvoice(invoiceId) {
-        const invoice = await api.getInvoiceById(invoiceId).catch(() => null);
-        if (!invoice) {
-            this.showMessage('Invoice topilmadi', 'error');
-            return;
-        }
-
-        const [client, products] = await Promise.all([
-            invoice.clientId ? api.getClientById(invoice.clientId).catch(() => null) : null,
-            api.getProducts()
-        ]);
-        const productMap = new Map(products.map(p => [p.id, p]));
-        const linesHtml = invoice.lineItems.map(item => {
-            const product = productMap.get(item.productId);
-            return `<tr><td>${product ? product.name : 'Noma\'lum'}</td><td>${item.quantity}</td><td>${this.formatNumber(item.price)} so'm</td><td>${this.formatNumber(item.quantity * item.price)} so'm</td></tr>`;
-        }).join('');
-
-        const fmt = (v) => invoice.currency ? this.formatCurrency(v, invoice.currency) : `${this.formatNumber(v)} so'm`;
-        const hasVat = invoice.vatRate > 0;
-        const subtotalDisplay = fmt(invoice.subtotal !== undefined ? invoice.subtotal : invoice.total);
-        const totalDisplay = fmt(invoice.total);
-        const vatRows = hasVat ? `
-<p><strong>Summa (QQSsiz):</strong> ${subtotalDisplay}</p>
-<p><strong>QQS (${invoice.vatRate}%):</strong> ${fmt(invoice.vatAmount || 0)}</p>` : '';
-        const htmlContent = `<!DOCTYPE html>
-<html lang="uz">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Invoice ${invoice.number}</title>
-<style>body{font-family:Arial,sans-serif;margin:2rem;}table{width:100%;border-collapse:collapse;}th,td{border:1px solid #ddd;padding:0.75rem;text-align:left;}th{background:#0f766e;color:#fff;}</style>
-</head>
-<body>
-<h1>Invoice ${invoice.number}</h1>
-<p><strong>Sana:</strong> ${new Date(invoice.date).toLocaleDateString('uz-UZ')}</p>
-<p><strong>Mijoz:</strong> ${client ? client.name : 'Noma\'lum'}</p>
-<p><strong>Izoh:</strong> ${invoice.description}</p>
-<table><thead><tr><th>Mahsulot</th><th>Soni</th><th>Birim narx</th><th>Jami</th></tr></thead><tbody>${linesHtml}</tbody></table>
-${vatRows}
-<p><strong>Jami summa (to'lanadigan):</strong> ${totalDisplay}</p>
-</body>
-</html>`;
-
-        const blob = new Blob([htmlContent], { type: 'text/html' });
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `Invoice_${invoice.number}.html`;
-        a.click();
-        window.URL.revokeObjectURL(url);
-
-        this.showMessage('Invoice eksport qilindi', 'success');
-    }
-
-    async deleteInvoice(invoiceId) {
-        if (!this.canDelete()) {
-            this.showMessage('Faqat menejeri va administratorlar o\'chira oladi', 'error');
-            return;
-        }
-        if (!confirm('Ushbu invoice o\'chirilsinmi?')) {
-            return;
-        }
+    async updateDocumentStatus(id, status) {
         try {
-            await api.deleteInvoice(invoiceId);
+            await api.updateDocumentStatus(id, status);
         } catch (err) {
-            this.showMessage('O\'chirishda xato: ' + err.message, 'error');
-            return;
+            this.showMessage('Holatni yangilashda xato: ' + err.message, 'error');
         }
-        await this.displayInvoices();
-        this.showMessage('Invoice o\'chirildi', 'success');
+        await this.displayDocumentExchange();
     }
 
     clearTransactionFilters() {
@@ -2511,6 +2291,117 @@ ${vatRows}
         this.showMessage('Hisobot HTML formatida chiqarildi', 'success');
     }
 
+    // SOLIQ HISOBOTLARI (soliq.uz rasmiy deklaratsiya shakllari andazasida)
+    handleTaxPeriodChange(e) {
+        const customDiv = document.getElementById('taxCustomPeriod');
+        customDiv.style.display = e.target.value === 'custom' ? 'block' : 'none';
+    }
+
+    async generateTaxReports() {
+        const period = document.querySelector('input[name="taxPeriod"]:checked').value;
+        let fromDate, toDate;
+        const today = new Date();
+
+        if (period === 'month') {
+            fromDate = new Date(today.getFullYear(), today.getMonth(), 1);
+            toDate = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+        } else if (period === 'quarter') {
+            const quarter = Math.floor(today.getMonth() / 3);
+            fromDate = new Date(today.getFullYear(), quarter * 3, 1);
+            toDate = new Date(today.getFullYear(), quarter * 3 + 3, 0);
+        } else if (period === 'year') {
+            fromDate = new Date(today.getFullYear(), 0, 1);
+            toDate = new Date(today.getFullYear(), 11, 31);
+        } else {
+            fromDate = new Date(document.getElementById('taxReportFromDate').value);
+            toDate = new Date(document.getElementById('taxReportToDate').value);
+        }
+        if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
+            this.showMessage("Iltimos, davr sanalarini to'g'ri kiriting", 'error');
+            return;
+        }
+        const periodLabel = `${fromDate.toLocaleDateString('uz-UZ')} — ${toDate.toLocaleDateString('uz-UZ')}`;
+        const inPeriod = (dateStr) => {
+            const d = new Date(dateStr);
+            return d >= fromDate && d <= toDate;
+        };
+
+        const [allTransactions, settings, companyInfo, employees, allPayroll] = await Promise.all([
+            api.getTransactions(), api.getSettings(), api.getCompanyInfo(), api.getEmployees(), api.getPayroll()
+        ]);
+        this.settings = settings;
+
+        const company = {
+            legalForm: companyInfo.companyLegalForm, name: companyInfo.companyName,
+            stir: companyInfo.companyStir, oked: companyInfo.companyOked, address: companyInfo.companyAddress
+        };
+        if (!company.name) {
+            this.showMessage("Avval \"🏢 Tashkilot\" bo'limida korxona rekvizitlarini to'ldiring", 'error');
+            return;
+        }
+
+        const transactions = allTransactions.filter(t => inPeriod(t.date));
+        const incomeTotal = transactions.filter(t => t.type === 'income').reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
+        const expenseTotal = transactions.filter(t => t.type === 'expense').reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
+
+        const isSimplified = settings.taxRegime === 'soddalashtirilgan';
+        const sections = [];
+
+        if (isSimplified) {
+            const taxRate = parseFloat(settings.taxTurnover) || 0;
+            const taxAmount = incomeTotal * (taxRate / 100);
+            sections.push(documentManager.buildTurnoverTaxReport({
+                company, periodLabel, totalTurnover: incomeTotal, taxRate, taxAmount
+            }));
+        } else {
+            const vatRate = parseFloat(settings.taxVAT) || 0;
+            const outputVat = incomeTotal * (vatRate / 100);
+            const inputVat = expenseTotal * (vatRate / 100);
+            const payableVat = Math.max(0, outputVat - inputVat);
+            sections.push(documentManager.buildVatReport({
+                company, periodLabel, outputBase: incomeTotal, outputVat, inputBase: expenseTotal, inputVat, payableVat, vatRate
+            }));
+
+            const profitRate = parseFloat(settings.taxIncome) || 0;
+            const taxBase = Math.max(0, incomeTotal - expenseTotal);
+            const profitTaxAmount = taxBase * (profitRate / 100);
+            sections.push(documentManager.buildProfitTaxReport({
+                company, periodLabel, totalIncome: incomeTotal, totalExpense: expenseTotal,
+                taxBase, taxRate: profitRate, taxAmount: profitTaxAmount
+            }));
+        }
+
+        // JShDS/ISHV: payroll "period" (YYYY-MM) qiymati tanlangan davr oralig'iga tushishiga qarab filtrlanadi
+        const employeeMap = new Map(employees.map(e => [e.id, e]));
+        const payrollRows = allPayroll
+            .filter(p => {
+                const d = new Date(`${p.period}-01`);
+                return d >= fromDate && d <= toDate;
+            })
+            .map(p => {
+                const emp = employeeMap.get(p.employeeId);
+                return {
+                    name: emp ? emp.name : "Noma'lum",
+                    position: emp ? emp.position : '',
+                    gross: parseFloat(p.gross) || 0,
+                    tax: parseFloat(p.tax) || 0,
+                    socialTax: parseFloat(p.socialTax) || 0,
+                    net: parseFloat(p.net) || 0
+                };
+            });
+        const payrollTotals = payrollRows.reduce((acc, r) => ({
+            gross: acc.gross + r.gross, tax: acc.tax + r.tax, socialTax: acc.socialTax + r.socialTax, net: acc.net + r.net
+        }), { gross: 0, tax: 0, socialTax: 0, net: 0 });
+
+        sections.push(documentManager.buildPayrollTaxReport({
+            company, periodLabel, rows: payrollRows, totals: payrollTotals,
+            ndflRate: settings.taxNDFL, ssvRate: settings.taxSSV
+        }));
+
+        document.getElementById('taxReportContent').innerHTML =
+            sections.join('<hr style="margin: 2.5rem 0; border: none; border-top: 2px solid var(--border-color);">');
+    }
+
     // SETTINGS
     async loadSettings() {
         const [settings, currencies] = await Promise.all([api.getSettings(), api.getCurrencies()]);
@@ -2567,9 +2458,6 @@ ${vatRows}
             return;
         }
         await this.loadCurrencies();
-        if (this.currentTab === 'sales') {
-            this.updateInvoiceTotalPreview();
-        }
         this.showMessage('Sozlamalar muvaffaqiyatli saqlandi', 'success');
     }
 
@@ -3053,23 +2941,6 @@ ${vatRows}
             this.showMessage('Import xatosi: ' + err.message, 'error');
         }
         e.target.value = '';
-    }
-
-    // Invoices (export only - ko'p qatorli hujjat bo'lgani uchun import qo'llab-quvvatlanmaydi)
-    async exportInvoicesToExcel() {
-        const [clients, invoices] = await Promise.all([api.getClients(), api.getInvoices()]);
-        const rows = invoices.map(inv => ({
-            number: inv.number,
-            date: inv.date ? String(inv.date).split('T')[0] : '',
-            clientName: (clients.find(c => c.id === inv.clientId) || {}).name || '',
-            subtotal: inv.subtotal !== undefined ? inv.subtotal : inv.total,
-            vatAmount: inv.vatAmount || 0,
-            total: inv.total,
-            status: inv.status,
-            description: inv.description || ''
-        }));
-        excelManager.exportRows('invoices', rows);
-        this.showMessage(`${rows.length} ta savdo hujjati Excel'ga eksport qilindi`, 'success');
     }
 
     // INVENTORY METHODS

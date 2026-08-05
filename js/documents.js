@@ -327,6 +327,103 @@ class DocumentManager {
         `;
     }
 
+    // ==================== SOLIQ HISOBOTLARI (soliq.uz rasmiy deklaratsiya shakllari andazasida) ====================
+
+    taxReportHeader(title, company, periodLabel) {
+        return `
+            <div class="doc-header">
+                <div class="doc-title">${this.esc(title)}</div>
+                <div class="doc-meta">Hisobot davri: ${this.esc(periodLabel)}</div>
+            </div>
+            <div class="doc-party">
+                <strong>Soliq to'lovchi:</strong> ${this.esc(company.legalForm)} «${this.esc(company.name) || '____________________'}»<br>
+                STIR: ${this.esc(company.stir) || '____________'} | OKED: ${this.esc(company.oked) || '____'}<br>
+                Manzil: ${this.esc(company.address) || '____________________'}
+            </div>`;
+    }
+
+    buildVatReport(data) {
+        const { company, periodLabel, outputBase, outputVat, inputBase, inputVat, payableVat, vatRate } = data;
+        return `
+            ${this.taxReportHeader("QQS BO'YICHA HISOBOT-DEKLARATSIYA", company, periodLabel)}
+            <table class="doc-table">
+                <thead><tr><th>№</th><th>Ko'rsatkich</th><th>Summa (so'm)</th></tr></thead>
+                <tbody>
+                    <tr><td>010</td><td>Soliq solinadigan aylanma (tovar/xizmat sotish)</td><td>${this.fmt(outputBase)}</td></tr>
+                    <tr><td>020</td><td>Hisoblangan QQS (${vatRate}%)</td><td><strong>${this.fmt(outputVat)}</strong></td></tr>
+                    <tr><td>030</td><td>Xarid bo'yicha aylanma (zachyotga qabul qilinadigan)</td><td>${this.fmt(inputBase)}</td></tr>
+                    <tr><td>040</td><td>Zachyot qilinadigan QQS (${vatRate}%)</td><td><strong>${this.fmt(inputVat)}</strong></td></tr>
+                    <tr style="background:#fff3cd;"><td>050</td><td><strong>Byudjetga to'lanadigan QQS</strong></td><td><strong>${this.fmt(payableVat)}</strong></td></tr>
+                </tbody>
+            </table>
+            <p class="doc-note">Eslatma: hisoblash davr ichidagi tranzaksiyalar (daromad/chiqim) asosida taxminiy amalga oshirilgan. Har bir bitim bo'yicha aniq QQS uchun "📨 Elektron hujjatlar almashinuvi" bo'limidagi elektron hisob-fakturalarni tekshiring va rasmiy topshirishdan oldin soliq.uz shaxsiy kabinetida solishtiring.</p>`;
+    }
+
+    buildProfitTaxReport(data) {
+        const { company, periodLabel, totalIncome, totalExpense, taxBase, taxRate, taxAmount } = data;
+        return `
+            ${this.taxReportHeader("FOYDA SOLIG'I BO'YICHA HISOBOT-DEKLARATSIYA", company, periodLabel)}
+            <table class="doc-table">
+                <thead><tr><th>№</th><th>Ko'rsatkich</th><th>Summa (so'm)</th></tr></thead>
+                <tbody>
+                    <tr><td>010</td><td>Jami daromad (umumiy aylanma)</td><td>${this.fmt(totalIncome)}</td></tr>
+                    <tr><td>020</td><td>Chegiriladigan xarajatlar</td><td>${this.fmt(totalExpense)}</td></tr>
+                    <tr><td>030</td><td>Soliq solinadigan baza (foyda)</td><td><strong>${this.fmt(taxBase)}</strong></td></tr>
+                    <tr style="background:#fff3cd;"><td>040</td><td><strong>Hisoblangan foyda solig'i (${taxRate}%)</strong></td><td><strong>${this.fmt(taxAmount)}</strong></td></tr>
+                </tbody>
+            </table>`;
+    }
+
+    buildTurnoverTaxReport(data) {
+        const { company, periodLabel, totalTurnover, taxRate, taxAmount } = data;
+        return `
+            ${this.taxReportHeader("AYLANMA SOLIG'I BO'YICHA HISOBOT-DEKLARATSIYA (soddalashtirilgan rejim)", company, periodLabel)}
+            <table class="doc-table">
+                <thead><tr><th>№</th><th>Ko'rsatkich</th><th>Summa (so'm)</th></tr></thead>
+                <tbody>
+                    <tr><td>010</td><td>Umumiy aylanma (jami daromad)</td><td>${this.fmt(totalTurnover)}</td></tr>
+                    <tr style="background:#fff3cd;"><td>020</td><td><strong>Hisoblangan aylanma solig'i (${taxRate}%)</strong></td><td><strong>${this.fmt(taxAmount)}</strong></td></tr>
+                </tbody>
+            </table>`;
+    }
+
+    buildPayrollTaxReport(data) {
+        const { company, periodLabel, rows, totals, ndflRate, ssvRate } = data;
+        let bodyRows = '';
+        (rows || []).forEach((r, i) => {
+            bodyRows += `
+                <tr>
+                    <td>${i + 1}</td>
+                    <td>${this.esc(r.name)}</td>
+                    <td>${this.esc(r.position) || '—'}</td>
+                    <td>${this.fmt(r.gross)}</td>
+                    <td>${this.fmt(r.tax)}</td>
+                    <td>${this.fmt(r.socialTax)}</td>
+                    <td>${this.fmt(r.net)}</td>
+                </tr>`;
+        });
+        if (!rows || rows.length === 0) {
+            bodyRows = `<tr><td colspan="7" class="doc-note">Ushbu davrda ish haqi yozuvlari topilmadi.</td></tr>`;
+        }
+        return `
+            ${this.taxReportHeader("JShDS VA ISHV BO'YICHA HISOBOT", company, periodLabel)}
+            <table class="doc-table">
+                <thead>
+                    <tr><th>#</th><th>F.I.Sh.</th><th>Lavozimi</th><th>Hisoblangan ish haqi</th><th>JShDS (${ndflRate}%)</th><th>ISHV (${ssvRate}%)</th><th>Qo'lga tegadigan</th></tr>
+                </thead>
+                <tbody>${bodyRows}</tbody>
+                <tfoot>
+                    <tr style="background:#fff3cd;">
+                        <td colspan="3" style="text-align:right;"><strong>Jami:</strong></td>
+                        <td><strong>${this.fmt(totals.gross)}</strong></td>
+                        <td><strong>${this.fmt(totals.tax)}</strong></td>
+                        <td><strong>${this.fmt(totals.socialTax)}</strong></td>
+                        <td><strong>${this.fmt(totals.net)}</strong></td>
+                    </tr>
+                </tfoot>
+            </table>`;
+    }
+
     build(type, data) {
         switch (type) {
             case 'invoice-faktura': return this.buildInvoiceFaktura(data);

@@ -1086,3 +1086,67 @@ tbody tr:hover {
         padding: 0;
     }
 }
+
+/* ELEKTRON HUJJATLAR ALMASHINUVI (Didox uslubi) */
+.doc-exchange-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin: 1.5rem 0;
+}
+
+.stat-chip {
+    background: var(--light-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 2rem;
+    padding: 0.5rem 1.25rem;
+    font-size: 0.9rem;
+    color: var(--text-light);
+}
+
+.stat-chip strong {
+    color: var(--text-dark);
+    margin-right: 0.35rem;
+    font-size: 1rem;
+}
+
+.stat-chip.doc-status-created { border-color: var(--text-light); }
+.stat-chip.doc-status-sent { border-color: var(--secondary-color); color: var(--secondary-color); }
+.stat-chip.doc-status-sent strong { color: var(--secondary-color); }
+.stat-chip.doc-status-signed { border-color: var(--success-color); color: var(--success-color); }
+.stat-chip.doc-status-signed strong { color: var(--success-color); }
+.stat-chip.doc-status-rejected { border-color: var(--danger-color); color: var(--danger-color); }
+.stat-chip.doc-status-rejected strong { color: var(--danger-color); }
+
+.doc-exchange-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.doc-exchange-toolbar input,
+.doc-exchange-toolbar select {
+    flex: 1;
+    min-width: 200px;
+}
+
+.doc-status-select {
+    border-radius: 1rem;
+    padding: 0.35rem 0.75rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    border: 1px solid var(--border-color);
+    background: var(--light-bg);
+    color: var(--text-light);
+    cursor: pointer;
+}
+
+.doc-status-select.doc-status-created { color: var(--text-light); }
+.doc-status-select.doc-status-sent { color: var(--secondary-color); border-color: var(--secondary-color); background: #ecfeff; }
+.doc-status-select.doc-status-signed { color: var(--success-color); border-color: var(--success-color); background: #ecfdf5; }
+.doc-status-select.doc-status-rejected { color: var(--danger-color); border-color: var(--danger-color); background: #fef2f2; }
+
+.doc-exchange-pointer {
+    text-align: center;
+}
