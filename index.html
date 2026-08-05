@@ -53,8 +53,8 @@
         <!-- HEADER -->
         <header class="header">
             <div class="header-content">
-                <h1>🏢 Ombor Boshqaruv Tizimi</h1>
-                <p>Mukammal buxgalteriya hisobi va oson ombor boshqaruvi</p>
+                <h1 id="headerTitle">🏢 Ombor Boshqaruv Tizimi</h1>
+                <p id="headerSubtitle">Mukammal buxgalteriya hisobi va oson ombor boshqaruvi</p>
             </div>
             <div class="header-nav">
                 <button class="nav-btn active" data-tab="dashboard">Bosh Sahifa</button>
@@ -67,6 +67,7 @@
                 <button class="nav-btn" data-tab="production">Ishlab chiqarish</button>
                 <button class="nav-btn" data-tab="reports">Hisobotlar</button>
                 <button class="nav-btn" data-tab="documents">📄 Hujjatlar</button>
+                <button class="nav-btn" data-tab="company">🏢 Tashkilot</button>
                 <button class="nav-btn" data-tab="settings">Sozlamalar</button>
             </div>
             <div class="header-user" id="headerUser" style="display: flex; align-items: center; gap: 10px;">
@@ -320,7 +321,15 @@
                     </div>
                     <div>
                         <label>STIR (Soliq To'lovchisi ID):</label>
-                        <input type="text" id="clientSTIR" placeholder="12 raqamli kod">
+                        <input type="text" id="clientSTIR" placeholder="9 yoki 14 raqamli kod">
+                    </div>
+                    <div>
+                        <label>Xisob raqami (h/r):</label>
+                        <input type="text" id="clientBankAccount" placeholder="20 raqamli hisob raqami">
+                    </div>
+                    <div>
+                        <label>MFO:</label>
+                        <input type="text" id="clientMfo" placeholder="00000">
                     </div>
                     <div>
                         <label>Telefon:</label>
@@ -361,7 +370,15 @@
                     </div>
                     <div>
                         <label>STIR (Soliq To'lovchisi ID):</label>
-                        <input type="text" id="supplierSTIR" placeholder="12 raqamli kod">
+                        <input type="text" id="supplierSTIR" placeholder="9 yoki 14 raqamli kod">
+                    </div>
+                    <div>
+                        <label>Xisob raqami (h/r):</label>
+                        <input type="text" id="supplierBankAccount" placeholder="20 raqamli hisob raqami">
+                    </div>
+                    <div>
+                        <label>MFO:</label>
+                        <input type="text" id="supplierMfo" placeholder="00000">
                     </div>
                     <div>
                         <label>Telefon:</label>
@@ -402,7 +419,7 @@
                 <button class="btn btn-secondary" id="transactionsExportBtn">📤 Excel'ga eksport</button>
                 <button class="btn btn-secondary" id="transactionsImportBtn">📥 Excel'dan import</button>
                 <input type="file" id="transactionsImportInput" accept=".xlsx,.xls" style="display:none;">
-                <span class="excel-hint">Import: "Turi" ustuniga <strong>income</strong> yoki <strong>expense</strong> yozing. Mijoz/Yetkazib beruvchi nomi mos kelmasa, avtomatik yaratiladi.</span>
+                <span class="excel-hint">Import: bank ko'chirmasi formatida — "Tashkilot xisob raqami/Tashkilot STIRi/Tashkilot nomi" ustuni <strong>/</strong> belgisi bilan ajratiladi (hisob raqami/STIR/nomi tartibida). "Turi" ustuniga <strong>income</strong> yoki <strong>expense</strong> yoziladi. Mijoz/Yetkazib beruvchi STIR yoki nomi bo'yicha mos kelmasa, avtomatik yaratiladi va rekvizitlari to'ldiriladi.</span>
             </div>
 
             <form id="transactionForm" class="form-section">
@@ -807,6 +824,93 @@
             <p class="excel-hint">Yuridik shaxslar uchun majburiy asosiy hujjatlar namunalari: elektron hisob-faktura, bajarilgan ish/xizmat akti, shartnoma, kassa orderi va ishonchnoma. Ma'lumotlar mavjud mijoz/invoice yozuvlaridan avtomatik to'ldiriladi.</p>
 
             <div class="settings-section">
+                <h3>Hujjat Yaratish</h3>
+                <form id="documentForm" class="form-section">
+                    <div class="form-grid">
+                        <div>
+                            <label>Hujjat turi:</label>
+                            <select id="documentType" required>
+                                <option value="">-- Tanlang --</option>
+                                <option value="invoice-faktura">Elektron hisob-faktura (schet-faktura)</option>
+                                <option value="act">Bajarilgan ish/xizmat akti</option>
+                                <option value="contract">Shartnoma (oldi-sotdi/xizmat)</option>
+                                <option value="cash-in">Kassa order — Kirim (PKO)</option>
+                                <option value="cash-out">Kassa order — Chiqim (RKO)</option>
+                                <option value="power-of-attorney">Ishonchnoma</option>
+                                <option value="reconciliation-act">Solishtirma dalolatnoma (mijoz/yetkazib beruvchi bilan)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Hujjat sanasi:</label>
+                            <input type="date" id="documentDate">
+                        </div>
+                        <div id="documentClientField" style="display:none;">
+                            <label>Mijoz:</label>
+                            <select id="documentClient">
+                                <option value="">-- Tanlang --</option>
+                            </select>
+                        </div>
+                        <div id="documentInvoiceField" style="display:none;">
+                            <label>Bog'liq invoice (ixtiyoriy — mahsulot qatorlarini avtomatik to'ldiradi):</label>
+                            <select id="documentInvoice">
+                                <option value="">-- Tanlang --</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div id="documentReconciliationFields" style="display:none;">
+                        <div class="form-grid">
+                            <div>
+                                <label>Kontragent turi:</label>
+                                <select id="docReconPartyType">
+                                    <option value="client">Mijoz</option>
+                                    <option value="supplier">Yetkazib beruvchi</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label>Kontragent:</label>
+                                <select id="docReconParty">
+                                    <option value="">-- Tanlang --</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label>Davr boshi:</label>
+                                <input type="date" id="docReconFrom">
+                            </div>
+                            <div>
+                                <label>Davr oxiri:</label>
+                                <input type="date" id="docReconTo">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="documentDynamicFields"></div>
+
+                    <button type="submit" class="btn btn-primary">Hujjatni shakllantirish</button>
+                </form>
+            </div>
+
+            <div class="settings-section" id="documentPreviewSection" style="display:none;">
+                <h3>Hujjat Ko'rinishi</h3>
+                <div class="document-actions">
+                    <button type="button" class="btn btn-secondary" id="printDocumentBtn">🖨️ Chop etish</button>
+                    <button type="button" class="btn btn-primary" id="saveDocumentBtn">💾 Saqlash</button>
+                </div>
+                <div id="documentPreview" class="document-preview"></div>
+            </div>
+
+            <div class="settings-section">
+                <h3>Saqlangan Hujjatlar</h3>
+                <div id="savedDocumentsList" class="list-container"></div>
+            </div>
+        </div>
+
+        <!-- COMPANY (TASHKILOT) TAB -->
+        <div class="tab-content" id="company">
+            <h2>🏢 Tashkilot Kabineti</h2>
+            <p class="excel-hint">Tashkilotingiz rekvizitlari. Bu ma'lumotlar hujjatlarda (hisob-faktura, akt, shartnoma va h.k.) avtomatik ishlatiladi va tashkilot nomi interfeys yuqori qismida ko'rsatiladi.</p>
+
+            <div class="settings-section">
                 <h3>Korxona Rekvizitlari (Sotuvchi/Ijrochi)</h3>
                 <form id="companyInfoForm" class="form-section">
                     <div class="form-grid">
@@ -862,60 +966,6 @@
                     </div>
                     <button type="submit" class="btn btn-primary">Rekvizitlarni saqlash</button>
                 </form>
-            </div>
-
-            <div class="settings-section">
-                <h3>Hujjat Yaratish</h3>
-                <form id="documentForm" class="form-section">
-                    <div class="form-grid">
-                        <div>
-                            <label>Hujjat turi:</label>
-                            <select id="documentType" required>
-                                <option value="">-- Tanlang --</option>
-                                <option value="invoice-faktura">Elektron hisob-faktura (schet-faktura)</option>
-                                <option value="act">Bajarilgan ish/xizmat akti</option>
-                                <option value="contract">Shartnoma (oldi-sotdi/xizmat)</option>
-                                <option value="cash-in">Kassa order — Kirim (PKO)</option>
-                                <option value="cash-out">Kassa order — Chiqim (RKO)</option>
-                                <option value="power-of-attorney">Ishonchnoma</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label>Hujjat sanasi:</label>
-                            <input type="date" id="documentDate">
-                        </div>
-                        <div id="documentClientField" style="display:none;">
-                            <label>Mijoz:</label>
-                            <select id="documentClient">
-                                <option value="">-- Tanlang --</option>
-                            </select>
-                        </div>
-                        <div id="documentInvoiceField" style="display:none;">
-                            <label>Bog'liq invoice (ixtiyoriy — mahsulot qatorlarini avtomatik to'ldiradi):</label>
-                            <select id="documentInvoice">
-                                <option value="">-- Tanlang --</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div id="documentDynamicFields"></div>
-
-                    <button type="submit" class="btn btn-primary">Hujjatni shakllantirish</button>
-                </form>
-            </div>
-
-            <div class="settings-section" id="documentPreviewSection" style="display:none;">
-                <h3>Hujjat Ko'rinishi</h3>
-                <div class="document-actions">
-                    <button type="button" class="btn btn-secondary" id="printDocumentBtn">🖨️ Chop etish</button>
-                    <button type="button" class="btn btn-primary" id="saveDocumentBtn">💾 Saqlash</button>
-                </div>
-                <div id="documentPreview" class="document-preview"></div>
-            </div>
-
-            <div class="settings-section">
-                <h3>Saqlangan Hujjatlar</h3>
-                <div id="savedDocumentsList" class="list-container"></div>
             </div>
         </div>
 

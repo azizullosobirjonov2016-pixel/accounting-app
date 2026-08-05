@@ -10,7 +10,7 @@ $nodeDir = "C:\Program Files\nodejs"
 $env:Path = "$nodeDir;$env:Path"
 
 Write-Host "Sinxronlanmoqda: $src -> $dst"
-robocopy $src $dst /MIR /XD .git node_modules /NFL /NDL /NJH /NJS | Out-Null
+robocopy $src $dst /MIR /XD .git node_modules /XF accounting.db *.pkg-hash /NFL /NDL /NJH /NJS | Out-Null
 
 Set-Location $dst
 

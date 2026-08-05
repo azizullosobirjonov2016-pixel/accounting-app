@@ -70,6 +70,8 @@ const initializeDatabase = () => {
             stir TEXT,
             phone TEXT,
             address TEXT,
+            bankAccount TEXT,
+            mfo TEXT,
             createdAt TEXT NOT NULL
         )`);
 
@@ -80,6 +82,8 @@ const initializeDatabase = () => {
             phone TEXT,
             address TEXT,
             productType TEXT,
+            bankAccount TEXT,
+            mfo TEXT,
             createdAt TEXT NOT NULL
         )`);
 
@@ -205,6 +209,7 @@ const initializeDatabase = () => {
             number TEXT,
             date TEXT,
             clientId TEXT,
+            supplierId TEXT,
             html TEXT,
             createdAt TEXT NOT NULL
         )`);
@@ -216,6 +221,11 @@ const initializeDatabase = () => {
         addColumnIfNotExists('products', 'default_currency', 'default_currency TEXT');
         addColumnIfNotExists('transactions', 'clientId', 'clientId TEXT');
         addColumnIfNotExists('transactions', 'supplierId', 'supplierId TEXT');
+        addColumnIfNotExists('documents', 'supplierId', 'supplierId TEXT');
+        addColumnIfNotExists('clients', 'bankAccount', 'bankAccount TEXT');
+        addColumnIfNotExists('clients', 'mfo', 'mfo TEXT');
+        addColumnIfNotExists('suppliers', 'bankAccount', 'bankAccount TEXT');
+        addColumnIfNotExists('suppliers', 'mfo', 'mfo TEXT');
         addColumnIfNotExists('transactions', 'payrollRecordId', 'payrollRecordId TEXT');
         addColumnIfNotExists('transactions', 'currency', 'currency TEXT');
         addColumnIfNotExists('transactions', 'amount_base', 'amount_base REAL');
@@ -387,23 +397,23 @@ app.get('/api/clients/:id', authenticate, async (req, res) => {
 
 app.post('/api/clients', authenticate, async (req, res) => {
     try {
-        const { name, stir, phone, address } = req.body;
+        const { name, stir, phone, address, bankAccount, mfo } = req.body;
         if (!name) return res.status(400).json({ error: 'name is required' });
         const id = randomUUID();
         const createdAt = new Date().toISOString();
-        await dbRun('INSERT INTO clients (id, name, stir, phone, address, createdAt) VALUES (?, ?, ?, ?, ?, ?)',
-            [id, name, stir || '', phone || '', address || '', createdAt]);
-        res.json({ id, name, stir, phone, address, createdAt });
+        await dbRun('INSERT INTO clients (id, name, stir, phone, address, bankAccount, mfo, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [id, name, stir || '', phone || '', address || '', bankAccount || '', mfo || '', createdAt]);
+        res.json({ id, name, stir, phone, address, bankAccount, mfo, createdAt });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.put('/api/clients/:id', authenticate, async (req, res) => {
     try {
-        const { name, stir, phone, address } = req.body;
+        const { name, stir, phone, address, bankAccount, mfo } = req.body;
         if (!name) return res.status(400).json({ error: 'name is required' });
-        await dbRun('UPDATE clients SET name = ?, stir = ?, phone = ?, address = ? WHERE id = ?',
-            [name, stir || '', phone || '', address || '', req.params.id]);
-        res.json({ id: req.params.id, name, stir, phone, address });
+        await dbRun('UPDATE clients SET name = ?, stir = ?, phone = ?, address = ?, bankAccount = ?, mfo = ? WHERE id = ?',
+            [name, stir || '', phone || '', address || '', bankAccount || '', mfo || '', req.params.id]);
+        res.json({ id: req.params.id, name, stir, phone, address, bankAccount, mfo });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -431,23 +441,23 @@ app.get('/api/suppliers/:id', authenticate, async (req, res) => {
 
 app.post('/api/suppliers', authenticate, async (req, res) => {
     try {
-        const { name, stir, phone, address, productType } = req.body;
+        const { name, stir, phone, address, productType, bankAccount, mfo } = req.body;
         if (!name) return res.status(400).json({ error: 'name is required' });
         const id = randomUUID();
         const createdAt = new Date().toISOString();
-        await dbRun('INSERT INTO suppliers (id, name, stir, phone, address, productType, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            [id, name, stir || '', phone || '', address || '', productType || '', createdAt]);
-        res.json({ id, name, stir, phone, address, productType, createdAt });
+        await dbRun('INSERT INTO suppliers (id, name, stir, phone, address, productType, bankAccount, mfo, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [id, name, stir || '', phone || '', address || '', productType || '', bankAccount || '', mfo || '', createdAt]);
+        res.json({ id, name, stir, phone, address, productType, bankAccount, mfo, createdAt });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.put('/api/suppliers/:id', authenticate, async (req, res) => {
     try {
-        const { name, stir, phone, address, productType } = req.body;
+        const { name, stir, phone, address, productType, bankAccount, mfo } = req.body;
         if (!name) return res.status(400).json({ error: 'name is required' });
-        await dbRun('UPDATE suppliers SET name = ?, stir = ?, phone = ?, address = ?, productType = ? WHERE id = ?',
-            [name, stir || '', phone || '', address || '', productType || '', req.params.id]);
-        res.json({ id: req.params.id, name, stir, phone, address, productType });
+        await dbRun('UPDATE suppliers SET name = ?, stir = ?, phone = ?, address = ?, productType = ?, bankAccount = ?, mfo = ? WHERE id = ?',
+            [name, stir || '', phone || '', address || '', productType || '', bankAccount || '', mfo || '', req.params.id]);
+        res.json({ id: req.params.id, name, stir, phone, address, productType, bankAccount, mfo });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1013,13 +1023,13 @@ app.get('/api/documents/:id', authenticate, async (req, res) => {
 
 app.post('/api/documents', authenticate, async (req, res) => {
     try {
-        const { type, number, date, clientId, html } = req.body;
+        const { type, number, date, clientId, supplierId, html } = req.body;
         if (!type || !html) return res.status(400).json({ error: 'type and html are required' });
         const id = randomUUID();
         const createdAt = new Date().toISOString();
-        await dbRun('INSERT INTO documents (id, type, number, date, clientId, html, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            [id, type, number || '', date || createdAt, clientId || '', html, createdAt]);
-        res.json({ id, type, number, date, clientId, html, createdAt });
+        await dbRun('INSERT INTO documents (id, type, number, date, clientId, supplierId, html, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [id, type, number || '', date || createdAt, clientId || '', supplierId || '', html, createdAt]);
+        res.json({ id, type, number, date, clientId, supplierId, html, createdAt });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

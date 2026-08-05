@@ -27,6 +27,7 @@ class AccountingApp {
         this.showMainApp();
         this.setupEventListeners();
         this.updateUserDisplay();
+        await this.updateHeaderOrgName();
         await this.loadCurrencies();
         await this.loadDashboard();
         await this.updateClientDropdowns();
@@ -329,6 +330,7 @@ class AccountingApp {
         this.showMainApp();
         this.setupEventListeners();
         this.updateUserDisplay();
+        await this.updateHeaderOrgName();
         await this.loadCurrencies();
         await this.loadDashboard();
         await this.updateClientDropdowns();
@@ -362,6 +364,7 @@ class AccountingApp {
         this.showMainApp();
         this.setupEventListeners();
         this.updateUserDisplay();
+        await this.updateHeaderOrgName();
         await this.loadCurrencies();
         await this.loadDashboard();
         await this.updateClientDropdowns();
@@ -507,6 +510,7 @@ class AccountingApp {
         // Documents (Hujjatlar)
         document.getElementById('companyInfoForm')?.addEventListener('submit', (e) => this.handleSaveCompanyInfo(e));
         document.getElementById('documentType')?.addEventListener('change', () => this.renderDocumentDynamicFields());
+        document.getElementById('docReconPartyType')?.addEventListener('change', () => this.updateReconciliationPartyDropdown());
         document.getElementById('documentForm')?.addEventListener('submit', (e) => this.handleGenerateDocument(e));
         document.getElementById('printDocumentBtn')?.addEventListener('click', () => window.print());
         document.getElementById('saveDocumentBtn')?.addEventListener('click', () => this.handleSaveDocument());
@@ -568,12 +572,13 @@ class AccountingApp {
             this.loadSettings();
         } else if (tabName === 'documents') {
             this.loadDocuments();
+        } else if (tabName === 'company') {
+            this.loadCompanyInfoForm();
         }
     }
 
     // DOCUMENTS (Hujjatlar)
     async loadDocuments() {
-        await this.loadCompanyInfoForm();
         await this.updateDocumentClientDropdown();
         await this.updateDocumentInvoiceDropdown();
         const dateField = document.getElementById('documentDate');
@@ -621,7 +626,28 @@ class AccountingApp {
             this.showMessage('Saqlashda xato: ' + err.message, 'error');
             return;
         }
+        await this.updateHeaderOrgName();
         this.showMessage('Korxona rekvizitlari saqlandi', 'success');
+    }
+
+    // Interfeys yuqorisidagi sarlavhani tashkilot nomiga moslashtirish
+    async updateHeaderOrgName() {
+        const titleEl = document.getElementById('headerTitle');
+        const subtitleEl = document.getElementById('headerSubtitle');
+        if (!titleEl || !subtitleEl) return;
+        let info;
+        try {
+            info = await api.getCompanyInfo();
+        } catch (err) {
+            return;
+        }
+        if (info.companyName) {
+            titleEl.textContent = `🏢 ${info.companyName}`;
+            subtitleEl.textContent = 'Ombor Boshqaruv Tizimi';
+        } else {
+            titleEl.textContent = '🏢 Ombor Boshqaruv Tizimi';
+            subtitleEl.textContent = 'Mukammal buxgalteriya hisobi va oson ombor boshqaruvi';
+        }
     }
 
     async updateDocumentClientDropdown() {
@@ -656,22 +682,49 @@ class AccountingApp {
         select.value = cur;
     }
 
+    async updateReconciliationPartyDropdown() {
+        const select = document.getElementById('docReconParty');
+        const partyType = document.getElementById('docReconPartyType').value;
+        if (!select) return;
+        const list = partyType === 'supplier' ? await api.getSuppliers() : await api.getClients();
+        const cur = select.value;
+        select.innerHTML = '<option value="">-- Tanlang --</option>';
+        list.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.id;
+            opt.textContent = p.name;
+            select.appendChild(opt);
+        });
+        select.value = cur;
+    }
+
     renderDocumentDynamicFields() {
         const type = document.getElementById('documentType').value;
         const container = document.getElementById('documentDynamicFields');
         const invoiceFieldWrap = document.getElementById('documentInvoiceField');
         const clientFieldWrap = document.getElementById('documentClientField');
+        const reconciliationFieldWrap = document.getElementById('documentReconciliationFields');
         container.innerHTML = '';
 
         if (!type) {
             invoiceFieldWrap.style.display = 'none';
             clientFieldWrap.style.display = 'none';
+            reconciliationFieldWrap.style.display = 'none';
             return;
         }
 
         const config = documentManager.fieldConfigs[type];
         invoiceFieldWrap.style.display = config.needsInvoice ? '' : 'none';
         clientFieldWrap.style.display = config.needsClient ? '' : 'none';
+        reconciliationFieldWrap.style.display = config.needsReconciliation ? '' : 'none';
+        if (config.needsReconciliation) {
+            this.updateReconciliationPartyDropdown();
+            const today = new Date().toISOString().split('T')[0];
+            const fromField = document.getElementById('docReconFrom');
+            const toField = document.getElementById('docReconTo');
+            if (!toField.value) toField.value = today;
+            if (!fromField.value) fromField.value = new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0];
+        }
 
         if (config.fields.length > 0) {
             const grid = document.createElement('div');
@@ -751,6 +804,14 @@ class AccountingApp {
             poaAuthority: document.getElementById('docPoaAuthority')?.value.trim()
         };
 
+        let reconPartyId = null;
+        if (type === 'reconciliation-act') {
+            const reconResult = await this.buildReconciliationData();
+            if (!reconResult) return;
+            Object.assign(data, reconResult.data);
+            reconPartyId = reconResult.partyId;
+        }
+
         const html = documentManager.build(type, data);
         document.getElementById('documentPreview').innerHTML = html;
         const previewSection = document.getElementById('documentPreviewSection');
@@ -759,8 +820,67 @@ class AccountingApp {
 
         this.currentGeneratedDocument = {
             type, number, date,
-            clientId: effectiveClient ? effectiveClient.id : null,
+            clientId: type === 'reconciliation-act'
+                ? (data.reconPartyType === 'client' ? reconPartyId : null)
+                : (effectiveClient ? effectiveClient.id : null),
+            supplierId: type === 'reconciliation-act' && data.reconPartyType === 'supplier' ? reconPartyId : null,
             html
+        };
+    }
+
+    // Solishtirma dalolatnoma uchun tanlangan kontragentning davr bo'yicha tranzaksiyalarini yig'ib, saldo hisoblaydi
+    async buildReconciliationData() {
+        const partyType = document.getElementById('docReconPartyType').value;
+        const partyId = document.getElementById('docReconParty').value;
+        const fromDate = document.getElementById('docReconFrom').value;
+        const toDate = document.getElementById('docReconTo').value || new Date().toISOString().split('T')[0];
+
+        if (!partyId) {
+            this.showMessage('Kontragentni tanlang', 'error');
+            return null;
+        }
+
+        const party = partyType === 'supplier'
+            ? await api.getSupplierById(partyId).catch(() => null)
+            : await api.getClientById(partyId).catch(() => null);
+
+        const allTransactions = await api.getTransactions();
+        const partyTransactions = allTransactions.filter(t =>
+            partyType === 'supplier' ? t.supplierId === partyId : t.clientId === partyId
+        );
+
+        // Mijoz uchun: 'income' — mijozning bizga qarzi (Debet), 'expense' — mijozdan olingan to'lov (Kredit)
+        // Yetkazib beruvchi uchun: 'expense' — bizning unga qarzimiz (Debet), 'income' — unga qilingan to'lov (Kredit)
+        const toDebitCredit = (t) => {
+            const isDebit = partyType === 'supplier' ? t.type === 'expense' : t.type === 'income';
+            return {
+                date: t.date,
+                description: t.description || this.getCategoryLabel(t.category) || '',
+                debit: isDebit ? (parseFloat(t.amount) || 0) : 0,
+                credit: !isDebit ? (parseFloat(t.amount) || 0) : 0
+            };
+        };
+
+        const before = partyTransactions.filter(t => fromDate && t.date < fromDate).map(toDebitCredit);
+        const openingBalance = before.reduce((sum, r) => sum + r.debit - r.credit, 0);
+
+        const rows = partyTransactions
+            .filter(t => (!fromDate || t.date >= fromDate) && t.date <= toDate)
+            .sort((a, b) => new Date(a.date) - new Date(b.date))
+            .map(toDebitCredit);
+        const closingBalance = rows.reduce((sum, r) => sum + r.debit - r.credit, openingBalance);
+
+        return {
+            partyId,
+            data: {
+                reconParty: party,
+                reconPartyType: partyType,
+                fromDate,
+                toDate,
+                openingBalance,
+                rows,
+                closingBalance
+            }
         };
     }
 
@@ -782,9 +902,10 @@ class AccountingApp {
     async displaySavedDocuments() {
         const container = document.getElementById('savedDocumentsList');
         if (!container) return;
-        const [documents, clients] = await Promise.all([api.getDocuments(), api.getClients()]);
+        const [documents, clients, suppliers] = await Promise.all([api.getDocuments(), api.getClients(), api.getSuppliers()]);
         documents.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
         const clientMap = new Map(clients.map(c => [c.id, c]));
+        const supplierMap = new Map(suppliers.map(s => [s.id, s]));
         container.innerHTML = '';
         if (documents.length === 0) {
             container.innerHTML = '<div class="empty-state"><p>Hali hujjat saqlanmagan</p></div>';
@@ -792,12 +913,14 @@ class AccountingApp {
         }
         documents.forEach(doc => {
             const client = doc.clientId ? clientMap.get(doc.clientId) : null;
+            const supplier = doc.supplierId ? supplierMap.get(doc.supplierId) : null;
+            const partyLine = client ? ' | Mijoz: ' + client.name : (supplier ? ' | Yetkazib beruvchi: ' + supplier.name : '');
             const item = document.createElement('div');
             item.className = 'list-item';
             item.innerHTML = `
                 <h4>${documentManager.typeLabels[doc.type] || doc.type}</h4>
                 <p><strong>№</strong> ${doc.number}</p>
-                <p>Sana: ${documentManager.formatDate(doc.date)}${client ? ' | Mijoz: ' + client.name : ''}</p>
+                <p>Sana: ${documentManager.formatDate(doc.date)}${partyLine}</p>
                 <div class="list-item-actions">
                     <button class="btn btn-secondary" onclick="app.viewSavedDocument('${doc.id}')">Ko'rish</button>
                     <button class="btn btn-danger" onclick="app.deleteSavedDocument('${doc.id}')">O'chirish</button>
@@ -1064,6 +1187,8 @@ class AccountingApp {
         const client = {
             name: document.getElementById('clientName').value,
             stir: document.getElementById('clientSTIR').value,
+            bankAccount: document.getElementById('clientBankAccount').value,
+            mfo: document.getElementById('clientMfo').value,
             phone: document.getElementById('clientPhone').value,
             address: document.getElementById('clientAddress').value
         };
@@ -1100,6 +1225,8 @@ class AccountingApp {
             item.innerHTML = `
                 <h4>${client.name}</h4>
                 <p><strong>STIR:</strong> ${client.stir || 'Belgilanmagan'}</p>
+                <p><strong>Xisob raqami:</strong> ${client.bankAccount || 'Belgilanmagan'}</p>
+                <p><strong>MFO:</strong> ${client.mfo || 'Belgilanmagan'}</p>
                 <p><strong>Telefon:</strong> ${client.phone || 'Belgilanmagan'}</p>
                 <p><strong>Manzil:</strong> ${client.address || 'Belgilanmagan'}</p>
                 <div class="list-item-actions">
@@ -1175,6 +1302,8 @@ class AccountingApp {
         const supplier = {
             name: document.getElementById('supplierName').value,
             stir: document.getElementById('supplierSTIR').value,
+            bankAccount: document.getElementById('supplierBankAccount').value,
+            mfo: document.getElementById('supplierMfo').value,
             phone: document.getElementById('supplierPhone').value,
             address: document.getElementById('supplierAddress').value,
             productType: document.getElementById('supplierProductType').value
@@ -1211,6 +1340,8 @@ class AccountingApp {
             item.innerHTML = `
                 <h4>${supplier.name}</h4>
                 <p><strong>STIR:</strong> ${supplier.stir || 'Belgilanmagan'}</p>
+                <p><strong>Xisob raqami:</strong> ${supplier.bankAccount || 'Belgilanmagan'}</p>
+                <p><strong>MFO:</strong> ${supplier.mfo || 'Belgilanmagan'}</p>
                 <p><strong>Telefon:</strong> ${supplier.phone || 'Belgilanmagan'}</p>
                 <p><strong>Mahsulot turi:</strong> ${this.getProductTypeLabel(supplier.productType)}</p>
                 <p><strong>Manzil:</strong> ${supplier.address || 'Belgilanmagan'}</p>
@@ -2671,7 +2802,9 @@ ${vatRows}
     // Clients
     async exportClientsToExcel() {
         const clients = await api.getClients();
-        const rows = clients.map(c => ({ name: c.name, stir: c.stir, phone: c.phone, address: c.address }));
+        const rows = clients.map(c => ({
+            name: c.name, stir: c.stir, bankAccount: c.bankAccount, mfo: c.mfo, phone: c.phone, address: c.address
+        }));
         excelManager.exportRows('clients', rows);
         this.showMessage(`${rows.length} ta mijoz Excel'ga eksport qilindi`, 'success');
     }
@@ -2684,7 +2817,10 @@ ${vatRows}
             let imported = 0;
             for (const r of rows) {
                 if (!r.name) continue;
-                await api.addClient({ name: r.name, stir: r.stir || '', phone: r.phone || '', address: r.address || '' });
+                await api.addClient({
+                    name: r.name, stir: r.stir || '', bankAccount: r.bankAccount || '', mfo: r.mfo || '',
+                    phone: r.phone || '', address: r.address || ''
+                });
                 imported++;
             }
             await this.displayClients();
@@ -2701,7 +2837,7 @@ ${vatRows}
     async exportSuppliersToExcel() {
         const suppliers = await api.getSuppliers();
         const rows = suppliers.map(s => ({
-            name: s.name, stir: s.stir, phone: s.phone, address: s.address,
+            name: s.name, stir: s.stir, bankAccount: s.bankAccount, mfo: s.mfo, phone: s.phone, address: s.address,
             productType: this.getProductTypeLabel(s.productType)
         }));
         excelManager.exportRows('suppliers', rows);
@@ -2717,7 +2853,8 @@ ${vatRows}
             for (const r of rows) {
                 if (!r.name) continue;
                 await api.addSupplier({
-                    name: r.name, stir: r.stir || '', phone: r.phone || '', address: r.address || '',
+                    name: r.name, stir: r.stir || '', bankAccount: r.bankAccount || '', mfo: r.mfo || '',
+                    phone: r.phone || '', address: r.address || '',
                     productType: this.resolveSupplierProductType(r.productType)
                 });
                 imported++;
@@ -2736,18 +2873,60 @@ ${vatRows}
         const [clients, suppliers, transactions] = await Promise.all([api.getClients(), api.getSuppliers(), api.getTransactions()]);
         const clientMap = new Map(clients.map(c => [c.id, c]));
         const supplierMap = new Map(suppliers.map(s => [s.id, s]));
-        const rows = transactions.map(t => ({
-            date: t.date ? String(t.date).split('T')[0] : '',
-            type: t.type,
-            category: t.category,
-            clientName: clientMap.get(t.clientId)?.name || '',
-            supplierName: supplierMap.get(t.supplierId)?.name || '',
-            amount: t.amount,
-            currency: t.currency || '',
-            description: t.description || ''
-        }));
+        const rows = transactions.map(t => {
+            const party = t.clientId ? clientMap.get(t.clientId) : (t.supplierId ? supplierMap.get(t.supplierId) : null);
+            const partyInfo = party ? `${party.bankAccount || ''}/${party.stir || ''}/${party.name || ''}` : '';
+            return {
+                date: t.date ? String(t.date).split('T')[0] : '',
+                partyInfo,
+                docNumber: '',
+                mfo: (party && party.mfo) || '',
+                debit: t.type === 'expense' ? t.amount : '',
+                credit: t.type === 'income' ? t.amount : '',
+                description: t.description || '',
+                type: t.type,
+                category: t.category
+            };
+        });
         excelManager.exportRows('transactions', rows);
         this.showMessage(`${rows.length} ta tranzaksiya Excel'ga eksport qilindi`, 'success');
+    }
+
+    // "Sana" ustunini "DD.MM.YYYY HH:MM:SS" (bank ko'chirmasi) yoki ISO formatdan tanib oladi
+    parseImportedDate(raw) {
+        if (!raw) return '';
+        const str = String(raw).trim();
+        const dmy = str.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})/);
+        if (dmy) {
+            const [, d, mo, y] = dmy;
+            return `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`;
+        }
+        const iso = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (iso) return iso[0];
+        const parsed = new Date(str);
+        if (!isNaN(parsed.getTime())) return parsed.toISOString().split('T')[0];
+        return str;
+    }
+
+    // "Tashkilot xisob raqami/Tashkilot STIRi/Tashkilot nomi" ustunini "/" bo'yicha ajratadi:
+    // 1-qism — 20 xonali hisob raqami, 2-qism — 9/14 xonali STIR, qolgani — tashkilot nomi
+    parsePartyInfo(raw) {
+        if (!raw) return { bankAccount: '', stir: '', name: '' };
+        const parts = String(raw).split('/').map(p => p.trim());
+        return {
+            bankAccount: parts[0] || '',
+            stir: parts[1] || '',
+            name: parts.slice(2).join('/').trim()
+        };
+    }
+
+    resolveTransactionCategory(value) {
+        const keys = ['sales', 'services', 'materials', 'salaries', 'social_tax', 'rent', 'utilities', 'transport', 'other'];
+        if (!value) return 'other';
+        const v = String(value).toLowerCase().trim();
+        if (keys.includes(v)) return v;
+        const found = keys.find(k => v.includes(k) || this.getCategoryLabel(k).toLowerCase().includes(v));
+        return found || 'other';
     }
 
     async importTransactionsFromExcel(e) {
@@ -2755,38 +2934,71 @@ ${vatRows}
         if (!file) return;
         try {
             const { rows, errors } = await excelManager.readFile('transactions', file);
-            let imported = 0, createdClients = 0, createdSuppliers = 0;
+            let imported = 0, createdClients = 0, createdSuppliers = 0, updatedParties = 0;
             let [clients, suppliers] = await Promise.all([api.getClients(), api.getSuppliers()]);
 
             for (const r of rows) {
-                if (!r.date || !r.amount) continue;
+                const debit = parseFloat(r.debit) || 0;
+                const credit = parseFloat(r.credit) || 0;
+                if (!r.date || (!debit && !credit)) continue;
+
                 const t = String(r.type || '').toLowerCase();
                 let type = null;
                 if (t.includes('income') || t.includes('daromad') || t.includes('xarid')) type = 'income';
                 else if (t.includes('expense') || t.includes('chiqim') || t.includes('xaraj')) type = 'expense';
-                if (!type) {
-                    errors.push(`${r.__row}-qator: "Turi" ustuni income yoki expense bo'lishi kerak`);
-                    continue;
+                if (!type) type = credit > 0 ? 'income' : 'expense';
+
+                const amount = type === 'income' ? (credit || debit) : (debit || credit);
+                const date = this.parseImportedDate(r.date);
+                const { bankAccount, stir, name } = this.parsePartyInfo(r.partyInfo);
+                const mfo = r.mfo || '';
+
+                let clientId = '', supplierId = '';
+                if (name) {
+                    if (type === 'income') {
+                        let client = (stir && clients.find(c => c.stir && c.stir === stir))
+                            || clients.find(c => (c.name || '').toLowerCase() === name.toLowerCase());
+                        if (!client) {
+                            client = await api.addClient({ name, stir, bankAccount, mfo });
+                            clients.push(client);
+                            createdClients++;
+                        } else if (!client.bankAccount || !client.mfo || !client.stir) {
+                            const updated = await api.updateClient(client.id, {
+                                name: client.name, stir: client.stir || stir,
+                                bankAccount: client.bankAccount || bankAccount, mfo: client.mfo || mfo,
+                                phone: client.phone, address: client.address
+                            });
+                            Object.assign(client, updated);
+                            updatedParties++;
+                        }
+                        clientId = client.id;
+                    } else {
+                        let supplier = (stir && suppliers.find(s => s.stir && s.stir === stir))
+                            || suppliers.find(s => (s.name || '').toLowerCase() === name.toLowerCase());
+                        if (!supplier) {
+                            supplier = await api.addSupplier({ name, stir, bankAccount, mfo });
+                            suppliers.push(supplier);
+                            createdSuppliers++;
+                        } else if (!supplier.bankAccount || !supplier.mfo || !supplier.stir) {
+                            const updated = await api.updateSupplier(supplier.id, {
+                                name: supplier.name, stir: supplier.stir || stir,
+                                bankAccount: supplier.bankAccount || bankAccount, mfo: supplier.mfo || mfo,
+                                phone: supplier.phone, address: supplier.address, productType: supplier.productType
+                            });
+                            Object.assign(supplier, updated);
+                            updatedParties++;
+                        }
+                        supplierId = supplier.id;
+                    }
                 }
 
-                let clientId = '';
-                if (r.clientName) {
-                    let client = clients.find(c => (c.name || '').toLowerCase() === String(r.clientName).toLowerCase());
-                    if (!client) { client = await api.addClient({ name: r.clientName }); clients.push(client); createdClients++; }
-                    clientId = client.id;
-                }
-                let supplierId = '';
-                if (r.supplierName) {
-                    let supplier = suppliers.find(s => (s.name || '').toLowerCase() === String(r.supplierName).toLowerCase());
-                    if (!supplier) { supplier = await api.addSupplier({ name: r.supplierName }); suppliers.push(supplier); createdSuppliers++; }
-                    supplierId = supplier.id;
-                }
+                const purpose = r.description || '';
+                const description = r.docNumber ? (purpose ? `№${r.docNumber} — ${purpose}` : `№${r.docNumber}`) : purpose;
 
                 await api.addTransaction({
-                    date: r.date, clientId, supplierId, type,
-                    category: r.category || 'other',
-                    amount: r.amount, currency: r.currency || '',
-                    description: r.description || ''
+                    date, clientId, supplierId, type,
+                    category: this.resolveTransactionCategory(r.category),
+                    amount, description
                 });
                 imported++;
             }
@@ -2798,6 +3010,7 @@ ${vatRows}
 
             let msg = `Tranzaksiyalar: ${imported} ta qator import qilindi`;
             if (createdClients) msg += `, ${createdClients} ta yangi mijoz avtomatik yaratildi`;
+            if (updatedParties) msg += `, ${updatedParties} ta kontragent rekvizitlari to'ldirildi`;
             if (createdSuppliers) msg += `, ${createdSuppliers} ta yangi yetkazib beruvchi avtomatik yaratildi`;
             this.reportImportResult('Tranzaksiyalar', imported, errors, msg);
         } catch (err) {

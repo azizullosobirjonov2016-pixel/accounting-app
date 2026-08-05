@@ -10,7 +10,8 @@ class DocumentManager {
             'contract': 'Shartnoma',
             'cash-in': 'Kassa kirim orderi (PKO)',
             'cash-out': 'Kassa chiqim orderi (RKO)',
-            'power-of-attorney': 'Ishonchnoma'
+            'power-of-attorney': 'Ishonchnoma',
+            'reconciliation-act': 'Solishtirma dalolatnoma'
         };
 
         // Har bir hujjat turi uchun qo'shimcha (dinamik) maydonlar tavsifi
@@ -45,7 +46,8 @@ class DocumentManager {
                     { id: 'docPoaValidUntil', label: 'Amal qilish muddati', type: 'date' },
                     { id: 'docPoaAuthority', label: 'Vakolatlar', type: 'text', placeholder: 'masalan: Tovar-moddiy boyliklarni qabul qilib olish' }
                 ]
-            }
+            },
+            'reconciliation-act': { needsClient: false, needsInvoice: false, fields: [], needsReconciliation: true }
         };
 
         this.ones = ['', 'bir', 'ikki', 'uch', "to'rt", 'besh', 'olti', 'yetti', 'sakkiz', "to'qqiz"];
@@ -125,12 +127,15 @@ class DocumentManager {
         if (!client) {
             return `<div class="doc-party"><strong>${this.esc(roleLabel)}:</strong> ____________________</div>`;
         }
+        const bankLine = (client.bankAccount || client.mfo)
+            ? `h/r: ${this.esc(client.bankAccount) || '____________________'}, MFO: ${this.esc(client.mfo) || '_____'}<br>`
+            : '';
         return `
             <div class="doc-party">
                 <strong>${this.esc(roleLabel)}:</strong> ${this.esc(client.name)}<br>
                 STIR: ${this.esc(client.stir) || '____________'}<br>
                 Manzil: ${this.esc(client.address) || '____________________'}<br>
-                Tel: ${this.esc(client.phone) || '____________'}
+                ${bankLine}Tel: ${this.esc(client.phone) || '____________'}
             </div>`;
     }
 
@@ -266,6 +271,62 @@ class DocumentManager {
         `;
     }
 
+    buildReconciliationAct(data) {
+        const { company, reconParty: party, reconPartyType: partyType, date, number, fromDate, toDate, openingBalance, rows, closingBalance } = data;
+        const partyRoleLabel = partyType === 'supplier' ? 'Yetkazib beruvchi' : 'Mijoz';
+
+        let bodyRows = '';
+        let running = openingBalance;
+        bodyRows += `
+            <tr>
+                <td colspan="3" style="text-align:right;"><strong>Davr boshiga saldo:</strong></td>
+                <td colspan="2"><strong>${this.fmt(openingBalance)} so'm</strong></td>
+            </tr>`;
+        (rows || []).forEach(r => {
+            running += (r.debit || 0) - (r.credit || 0);
+            bodyRows += `
+                <tr>
+                    <td>${this.formatDate(r.date)}</td>
+                    <td>${this.esc(r.description)}</td>
+                    <td>${r.debit ? this.fmt(r.debit) : ''}</td>
+                    <td>${r.credit ? this.fmt(r.credit) : ''}</td>
+                    <td>${this.fmt(running)}</td>
+                </tr>`;
+        });
+        bodyRows += `
+            <tr>
+                <td colspan="3" style="text-align:right;"><strong>Davr oxiriga saldo:</strong></td>
+                <td colspan="2"><strong>${this.fmt(closingBalance)} so'm</strong></td>
+            </tr>`;
+
+        const balanceOwner = closingBalance >= 0
+            ? `${this.esc(partyRoleLabel)} tomonidan ${this.esc(company.name) || 'tashkilot'}ga`
+            : `${this.esc(company.name) || 'Tashkilot'} tomonidan ${this.esc(partyRoleLabel).toLowerCase()}ga`;
+
+        return `
+            <div class="doc-header">
+                <div class="doc-title">SOLISHTIRMA DALOLATNOMA</div>
+                <div class="doc-meta">№ ${this.esc(number)} &nbsp;&nbsp; Sana: ${this.formatDate(date)}</div>
+                <div class="doc-meta">${this.formatDate(fromDate)} — ${this.formatDate(toDate)} davr uchun o'zaro hisob-kitoblar bo'yicha</div>
+            </div>
+            <div class="doc-parties">
+                ${this.companyBlock(company, 'Tashkilot')}
+                ${this.clientBlock(party, partyRoleLabel)}
+            </div>
+            <p>Biz, quyida imzo chekuvchilar, ${this.esc(company.name) || '____________________'} va ${party ? this.esc(party.name) : '____________________'} o'rtasida ${this.formatDate(fromDate)} dan ${this.formatDate(toDate)} gacha bo'lgan davrdagi o'zaro hisob-kitoblarni solishtirdik va quyidagini tasdiqlaymiz:</p>
+            <table class="doc-table">
+                <thead>
+                    <tr><th>Sana</th><th>Tavsif</th><th>Debet (qarzga)</th><th>Kredit (to'lov)</th><th>Saldo</th></tr>
+                </thead>
+                <tbody>${bodyRows}</tbody>
+            </table>
+            <p><strong>Davr oxiriga saldo:</strong> ${this.fmt(Math.abs(closingBalance))} so'm ${closingBalance === 0 ? '(hisob-kitoblar teng)' : '— ' + balanceOwner + ' foyzasiga qarzdorlik'}</p>
+            <p><strong>Saldo so'z bilan:</strong> ${this.amountInWords(Math.abs(closingBalance))}</p>
+            <p class="doc-note">Ushbu dalolatnoma ikki nusxada tuzilgan bo'lib, har bir tomon uchun bittadan, teng yuridik kuchga ega.</p>
+            ${this.signatureBlock(company)}
+        `;
+    }
+
     build(type, data) {
         switch (type) {
             case 'invoice-faktura': return this.buildInvoiceFaktura(data);
@@ -274,6 +335,7 @@ class DocumentManager {
             case 'cash-in': return this.buildCashOrder(data, 'in');
             case 'cash-out': return this.buildCashOrder(data, 'out');
             case 'power-of-attorney': return this.buildPowerOfAttorney(data);
+            case 'reconciliation-act': return this.buildReconciliationAct(data);
             default: return '';
         }
     }

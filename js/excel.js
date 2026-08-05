@@ -26,6 +26,8 @@ class ExcelManager {
                 columns: [
                     { key: 'name', label: 'Nomi/Kompaniya', required: true, type: 'string' },
                     { key: 'stir', label: 'STIR', required: false, type: 'string' },
+                    { key: 'bankAccount', label: 'Xisob raqami', required: false, type: 'string' },
+                    { key: 'mfo', label: 'MFO', required: false, type: 'string' },
                     { key: 'phone', label: 'Telefon', required: false, type: 'string' },
                     { key: 'address', label: 'Manzil', required: false, type: 'string' }
                 ]
@@ -36,6 +38,8 @@ class ExcelManager {
                 columns: [
                     { key: 'name', label: 'Nomi/Kompaniya', required: true, type: 'string' },
                     { key: 'stir', label: 'STIR', required: false, type: 'string' },
+                    { key: 'bankAccount', label: 'Xisob raqami', required: false, type: 'string' },
+                    { key: 'mfo', label: 'MFO', required: false, type: 'string' },
                     { key: 'phone', label: 'Telefon', required: false, type: 'string' },
                     { key: 'address', label: 'Manzil', required: false, type: 'string' },
                     { key: 'productType', label: 'Mahsulot turi', required: false, type: 'string' }
@@ -44,15 +48,17 @@ class ExcelManager {
             transactions: {
                 sheetName: 'Tranzaksiyalar',
                 filePrefix: 'Tranzaksiyalar',
+                // Bank ko'chirmasi eksport formatiga mos ustun tartibi
                 columns: [
                     { key: 'date', label: 'Sana', required: true, type: 'string' },
+                    { key: 'partyInfo', label: 'Tashkilot xisob raqami/Tashkilot STIRi/Tashkilot nomi', required: false, type: 'string' },
+                    { key: 'docNumber', label: 'Dokument raqami', required: false, type: 'string' },
+                    { key: 'mfo', label: 'MFO', required: false, type: 'string' },
+                    { key: 'debit', label: 'Debet', required: false, type: 'number' },
+                    { key: 'credit', label: 'Kredit', required: false, type: 'number' },
+                    { key: 'description', label: "To'lov maqsadi", required: false, type: 'string' },
                     { key: 'type', label: 'Turi (income/expense)', required: true, type: 'string' },
-                    { key: 'category', label: 'Kategoriya', required: false, type: 'string' },
-                    { key: 'clientName', label: 'Mijoz', required: false, type: 'string' },
-                    { key: 'supplierName', label: 'Yetkazib beruvchi', required: false, type: 'string' },
-                    { key: 'amount', label: 'Summa', required: true, type: 'number' },
-                    { key: 'currency', label: 'Valyuta', required: false, type: 'string' },
-                    { key: 'description', label: 'Tavsif', required: false, type: 'string' }
+                    { key: 'category', label: 'Kategoriyasi', required: false, type: 'string' }
                 ]
             },
             employees: {
