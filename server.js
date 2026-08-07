@@ -212,6 +212,19 @@ const initializeDatabase = () => {
             supplierId TEXT,
             status TEXT DEFAULT 'created',
             html TEXT,
+            meta TEXT,
+            createdAt TEXT NOT NULL
+        )`);
+
+        // Sayt harakatlari tarixi — har bir muvaffaqiyatli yozuv/o'zgartirish/o'chirish avtomatik qayd etiladi
+        db.run(`CREATE TABLE IF NOT EXISTS activity_log (
+            id TEXT PRIMARY KEY,
+            userId TEXT,
+            username TEXT,
+            displayName TEXT,
+            method TEXT NOT NULL,
+            path TEXT NOT NULL,
+            description TEXT NOT NULL,
             createdAt TEXT NOT NULL
         )`);
 
@@ -237,6 +250,7 @@ const initializeDatabase = () => {
         addColumnIfNotExists('invoices', 'vatRate', 'vatRate REAL');
         addColumnIfNotExists('invoices', 'vatAmount', 'vatAmount REAL');
         addColumnIfNotExists('payroll_records', 'socialTax', 'socialTax REAL');
+        addColumnIfNotExists('documents', 'meta', 'meta TEXT');
 
         console.log('Database schema initialized');
     });
@@ -252,7 +266,8 @@ const DEFAULT_SETTINGS = {
     taxTurnover: '4',
     taxSSV: '12',
     taxNDFL: '12',
-    defaultCurrency: BASE_CURRENCY
+    defaultCurrency: BASE_CURRENCY,
+    productionMarkup: '20'
 };
 
 const COMPANY_INFO_KEYS = ['companyName', 'companyLegalForm', 'companyStir', 'companyOked', 'companyAddress',
@@ -299,6 +314,58 @@ const requireRole = (...roles) => (req, res, next) => {
     }
     next();
 };
+
+// ==================== ACTIVITY LOG (Sayt harakatlari tarixi) ====================
+// Har bir muvaffaqiyatli yozuv/o'zgartirish/o'chirish (/api/... ostidagi POST/PUT/DELETE)
+// avtomatik ravishda activity_log jadvaliga yoziladi — har bir endpointni alohida o'zgartirmaslik uchun.
+
+const ACTIVITY_ENTITY_LABELS = {
+    clients: 'Mijoz', suppliers: 'Yetkazib beruvchi', products: 'Mahsulot',
+    'inventory-movements': 'Ombor harakati', currencies: 'Valyuta', 'exchange-rates': 'Valyuta kursi',
+    transactions: 'Tranzaksiya', invoices: 'Savdo hisob-fakturasi',
+    'production/recipes': 'Ishlab chiqarish kalkulyatsiyasi (retsept)', 'production/orders': 'Ishlab chiqarish buyurtmasi',
+    employees: 'Xodim', payroll: 'Ish haqi yozuvi', settings: 'Sozlamalar', 'company-info': "Tashkilot ma'lumotlari",
+    documents: 'Hujjat', users: 'Foydalanuvchi'
+};
+
+const ACTIVITY_ACTION_WORDS = { POST: "qo'shildi", PUT: 'yangilandi', DELETE: "o'chirildi" };
+
+function describeActivity(req, resBody) {
+    const cleanPath = req.path.replace(/^\/api\//, '');
+    const parts = cleanPath.split('/').filter(Boolean);
+    const entityKey = (parts[0] === 'production' && parts[1]) ? `production/${parts[1]}` : parts[0];
+    const label = ACTIVITY_ENTITY_LABELS[entityKey] || entityKey;
+
+    if (entityKey === 'documents' && parts[2] === 'status') {
+        return `${label} holati "${(req.body && req.body.status) || ''}" ga o'zgartirildi`;
+    }
+
+    const actionWord = ACTIVITY_ACTION_WORDS[req.method] || req.method;
+    const idPart = entityKey === parts[0] ? parts[1] : parts[2];
+    const nameSource = (req.body && (req.body.name || req.body.title || req.body.number)) ||
+        (resBody && (resBody.name || resBody.title || resBody.number)) ||
+        (req.body && req.body.description) ||
+        (idPart ? `#${idPart.slice(0, 8)}` : '');
+
+    return `${label} ${actionWord}${nameSource ? `: "${nameSource}"` : ''}`;
+}
+
+app.use((req, res, next) => {
+    const originalJson = res.json.bind(res);
+    res.json = (body) => {
+        if (['POST', 'PUT', 'DELETE'].includes(req.method) && req.path.startsWith('/api/')
+            && !req.path.startsWith('/api/auth/') && req.path !== '/api/activity-log' && res.statusCode < 400) {
+            const description = describeActivity(req, body);
+            const user = req.user || {};
+            dbRun(
+                'INSERT INTO activity_log (id, userId, username, displayName, method, path, description, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                [randomUUID(), user.userId || '', user.username || '', user.name || '', req.method, req.path, description, new Date().toISOString()]
+            ).catch(err => console.error('Activity log error:', err.message));
+        }
+        return originalJson(body);
+    };
+    next();
+});
 
 // ==================== AUTH ENDPOINTS ====================
 
@@ -1025,13 +1092,14 @@ app.get('/api/documents/:id', authenticate, async (req, res) => {
 
 app.post('/api/documents', authenticate, async (req, res) => {
     try {
-        const { type, number, date, clientId, supplierId, html } = req.body;
+        const { type, number, date, clientId, supplierId, html, meta } = req.body;
         if (!type || !html) return res.status(400).json({ error: 'type and html are required' });
         const id = randomUUID();
         const createdAt = new Date().toISOString();
-        await dbRun('INSERT INTO documents (id, type, number, date, clientId, supplierId, status, html, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            [id, type, number || '', date || createdAt, clientId || '', supplierId || '', 'created', html, createdAt]);
-        res.json({ id, type, number, date, clientId, supplierId, status: 'created', html, createdAt });
+        const metaStr = meta && typeof meta === 'object' ? JSON.stringify(meta) : (meta || '');
+        await dbRun('INSERT INTO documents (id, type, number, date, clientId, supplierId, status, html, meta, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [id, type, number || '', date || createdAt, clientId || '', supplierId || '', 'created', html, metaStr, createdAt]);
+        res.json({ id, type, number, date, clientId, supplierId, status: 'created', html, meta: metaStr, createdAt });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1073,6 +1141,16 @@ app.get('/api/statistics', authenticate, async (req, res) => {
             : (grossProfit > 0 ? grossProfit * ((parseFloat(settings.taxIncome) || 0) / 100) : 0);
 
         res.json({ totalIncome, totalExpense, totalTax, netProfit: grossProfit - totalTax });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ==================== ACTIVITY LOG (Sayt harakatlari tarixi) ====================
+
+app.get('/api/activity-log', authenticate, async (req, res) => {
+    try {
+        const limit = Math.min(parseInt(req.query.limit, 10) || 200, 500);
+        const rows = await dbAll('SELECT * FROM activity_log ORDER BY createdAt DESC LIMIT ?', [limit]);
+        res.json(rows);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

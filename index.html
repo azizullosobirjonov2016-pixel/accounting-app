@@ -69,6 +69,7 @@
                 <button class="nav-btn" data-tab="taxreports">🧮 Soliq hisobotlari</button>
                 <button class="nav-btn" data-tab="documents">📄 Hujjatlar</button>
                 <button class="nav-btn" data-tab="company">🏢 Tashkilot</button>
+                <button class="nav-btn" data-tab="activity">🕓 Harakatlar tarixi</button>
                 <button class="nav-btn" data-tab="settings">Sozlamalar</button>
             </div>
             <div class="header-user" id="headerUser" style="display: flex; align-items: center; gap: 10px;">
@@ -76,6 +77,19 @@
                 <button id="logoutBtn" class="btn btn-danger" style="padding: 5px 10px; font-size: 12px;">Chiqish</button>
             </div>
         </header>
+
+        <!-- Confirm Dialog Modal -->
+        <div id="confirmModal" class="modal">
+            <div class="modal-content" style="max-width: 420px;">
+                <span class="close" id="confirmModalClose">&times;</span>
+                <h3 id="confirmModalTitle">Tasdiqlash</h3>
+                <p id="confirmModalMessage"></p>
+                <div class="list-item-actions" style="margin-top: 1rem;">
+                    <button type="button" class="btn btn-secondary" id="confirmModalCancel">Bekor qilish</button>
+                    <button type="button" class="btn btn-danger" id="confirmModalOk">Ha, davom etish</button>
+                </div>
+            </div>
+        </div>
 
         <!-- DASHBOARD TAB -->
         <div class="tab-content active" id="dashboard">
@@ -177,7 +191,7 @@
             <div id="addProductModal" class="modal">
                 <div class="modal-content">
                     <span class="close">&times;</span>
-                    <h3>Yangi Mahsulot Qo'shish</h3>
+                    <h3 id="productModalTitle">Yangi Mahsulot Qo'shish</h3>
                     <form id="productForm">
                         <div class="form-grid">
                             <div>
@@ -225,7 +239,7 @@
                                 <input type="number" id="sellingPrice" min="0" step="0.01">
                             </div>
                         </div>
-                        <button type="submit" class="btn btn-primary">Qo'shish</button>
+                        <button type="submit" class="btn btn-primary" id="productSubmitBtn">Qo'shish</button>
                     </form>
                 </div>
             </div>
@@ -344,8 +358,25 @@
                 <button type="submit" class="btn btn-primary">Qo'shish</button>
             </form>
 
+            <div class="settings-section balance-chart-section">
+                <h3>💳 Mijozlar qarzdorligi</h3>
+                <p class="excel-hint">Har bir mijoz bo'yicha tanlangan davr uchun hisoblangan qoldiq (Boshlanish qoldig'i + Debet − Kredit = Yakuniy qoldiq).</p>
+
+                <div class="balance-report-controls">
+                    <label>Davr boshi: <input type="date" id="clientsBalanceFrom"></label>
+                    <label>Davr oxiri: <input type="date" id="clientsBalanceTo"></label>
+                    <button type="button" class="btn btn-secondary" id="clientsBalanceReportBtn">📊 Excel hisobot</button>
+                </div>
+
+                <div class="balance-chart-summary" id="clientsBalanceSummary"></div>
+                <div class="balance-chart" id="clientsBalanceChart"></div>
+            </div>
+
             <div class="clients-list">
                 <h3>Mavjud Mijozlar</h3>
+                <div class="filters">
+                    <input type="text" id="clientSearch" placeholder="Mijoz nomini qidiring...">
+                </div>
                 <div id="clientsList" class="list-container">
                 </div>
             </div>
@@ -404,8 +435,25 @@
                 <button type="submit" class="btn btn-primary">Qo'shish</button>
             </form>
 
+            <div class="settings-section balance-chart-section">
+                <h3>💳 Yetkazib beruvchilarga qarzdorlik</h3>
+                <p class="excel-hint">Har bir yetkazib beruvchi bo'yicha tanlangan davr uchun hisoblangan qoldiq (Boshlanish qoldig'i + Debet − Kredit = Yakuniy qoldiq).</p>
+
+                <div class="balance-report-controls">
+                    <label>Davr boshi: <input type="date" id="suppliersBalanceFrom"></label>
+                    <label>Davr oxiri: <input type="date" id="suppliersBalanceTo"></label>
+                    <button type="button" class="btn btn-secondary" id="suppliersBalanceReportBtn">📊 Excel hisobot</button>
+                </div>
+
+                <div class="balance-chart-summary" id="suppliersBalanceSummary"></div>
+                <div class="balance-chart" id="suppliersBalanceChart"></div>
+            </div>
+
             <div class="suppliers-list">
                 <h3>Mavjud Yetkazib Beruvchilar</h3>
+                <div class="filters">
+                    <input type="text" id="supplierSearch" placeholder="Yetkazib beruvchi nomini qidiring...">
+                </div>
                 <div id="suppliersList" class="list-container">
                 </div>
             </div>
@@ -522,6 +570,14 @@
         <div class="tab-content" id="sales">
             <h2>📨 Elektron hujjatlar almashinuvi</h2>
             <p class="excel-hint">"📄 Hujjatlar" bo'limida shakllantirilgan va saqlangan barcha rasmiy hujjatlar (hisob-faktura, akt, shartnoma, kassa orderi, ishonchnoma, solishtirma dalolatnoma) shu yerda yagona ro'yxatda kuzatiladi — Didox uslubidagi elektron hujjat aylanish holati bilan.</p>
+
+            <div class="excel-toolbar">
+                <button class="btn btn-outline" id="docExchangeTemplateBtn">📋 Shablon</button>
+                <button class="btn btn-secondary" id="docExchangeExportBtn">📤 Eksport</button>
+                <button class="btn btn-secondary" id="docExchangeImportBtn">📥 Import</button>
+                <input type="file" id="docExchangeImportInput" accept=".xlsx,.xls" style="display:none;">
+            </div>
+            <p class="excel-hint">Import/Eksport — soliq.uz shaxsiy kabinetidan yuklab olinadigan <code>docs_&lt;STIR&gt;.xlsx</code> hisob-fakturalar ro'yxati formatida. Import qilinganda tashkilotingiz STIR raqami sotuvchi ustunida bo'lsa kontragent "Mijozlar"ga, xaridor ustunida bo'lsa "Yetkazib beruvchilar"ga avtomatik joylashtiriladi va har bir hujjat uchun elektron hisob-faktura yaratiladi. Har bir tovar qatori "📦 Ombor"dagi mahsulot bilan nomi bo'yicha moslashtiriladi: tashkilotingiz sotuvchi bo'lsa — ombordan <strong>ayiriladi</strong> (chiqim). Agar ombordagi zahira faktura miqdoriga yetmasa (jumladan mahsulot umuman topilmasa), lekin shu mahsulot uchun "🏭 Ishlab chiqarish" bo'limida oldindan kalkulyatsiya (retsept) kiritilgan bo'lsa — yetishmagan qism shu kalkulyatsiya bo'yicha (xom ashyo omborda yetarli bo'lsa) avtomatik ishlab chiqarilib, so'ng to'liq miqdorda sotiladi va ishlab chiqarilgan qism uchun tannarx/foyda ko'rsatilgan dalolatnoma shakllantiriladi (tannarxga Sozlamalardagi "Ishlab chiqarish ustama foizi" qo'shiladi). Mos kalkulyatsiya topilmasa — o'tkazib yuboriladi. Xaridor bo'lsangiz — ombor <strong>ga qo'shiladi</strong> (kirim; topilmasa yangi mahsulot avtomatik yaratiladi).</p>
 
             <div class="doc-exchange-stats" id="docExchangeStats"></div>
 
@@ -985,6 +1041,29 @@
             </div>
         </div>
 
+        <!-- ACTIVITY LOG TAB -->
+        <div class="tab-content" id="activity">
+            <h2>🕓 Sayt harakatlari tarixi</h2>
+            <p class="excel-hint">Tizimda bajarilgan barcha yozuv, o'zgartirish va o'chirish amallari shu yerda avtomatik qayd etib boriladi (foydalanuvchi, vaqt va tavsif bilan).</p>
+
+            <div class="doc-exchange-toolbar">
+                <input type="text" id="activitySearch" placeholder="🔍 Foydalanuvchi yoki tavsif bo'yicha qidirish...">
+                <button type="button" class="btn btn-secondary" id="activityRefreshBtn">🔄 Yangilash</button>
+            </div>
+
+            <table class="transactions-table" id="activityTable">
+                <thead>
+                    <tr>
+                        <th>Vaqt</th>
+                        <th>Foydalanuvchi</th>
+                        <th>Amal</th>
+                        <th>Tavsif</th>
+                    </tr>
+                </thead>
+                <tbody id="activityTableBody"></tbody>
+            </table>
+        </div>
+
         <!-- SETTINGS TAB -->
         <div class="tab-content" id="settings">
             <h2>⚙️ Sozlamalar</h2>
@@ -1020,8 +1099,12 @@
                             <label>JShDS - Jismoniy shaxslar daromad solig'i (%):</label>
                             <input type="number" id="taxNDFL" value="12" min="0" max="100" step="0.1">
                         </div>
+                        <div>
+                            <label>Ishlab chiqarish ustama foizi (mehnat/ishlov xarajati) (%):</label>
+                            <input type="number" id="productionMarkup" value="20" min="0" max="100" step="0.1">
+                        </div>
                     </div>
-                    <p class="excel-hint">QQS + Foyda solig'i umumbelgilangan rejimda qo'llanadi. Aylanma solig'i — soddalashtirilgan rejimdagi kichik korxonalar uchun (QQS va Foyda solig'i o'rniga).</p>
+                    <p class="excel-hint">QQS + Foyda solig'i umumbelgilangan rejimda qo'llanadi. Aylanma solig'i — soddalashtirilgan rejimdagi kichik korxonalar uchun (QQS va Foyda solig'i o'rniga). Ishlab chiqarish ustama foizi — "📨 Elektron hujjatlar almashinuvi" importida omborda topilmagan, lekin kalkulyatsiyasi (retsepti) mavjud mahsulot avtomatik ishlab chiqarilganda, xom ashyo tannarxiga qo'shiladigan mehnat/ishlov xarajati ustamasi.</p>
                     <button type="submit" class="btn btn-primary">Saqlash</button>
                 </form>
 

@@ -424,6 +424,60 @@ class DocumentManager {
             </table>`;
     }
 
+    // Elektron hujjatlar almashinuvi importida omborda topilmagan, lekin unga mos kalkulyatsiya (retsept)
+    // topilgan mahsulot avtomatik ishlab chiqarilganda shakllantiriladigan dalolatnoma.
+    buildProductionCertificate(data) {
+        const {
+            company, number, date, recipeName, finishedProductName, producedQuantity, unit,
+            materials, materialCost, markupPercent, markupAmount, totalCost, unitCost,
+            sellingTotal, profit, invoiceNumber
+        } = data;
+
+        let materialRows = '';
+        (materials || []).forEach((m, i) => {
+            materialRows += `
+                <tr>
+                    <td>${i + 1}</td>
+                    <td>${this.esc(m.name)}</td>
+                    <td>${this.esc(m.qtyPerUnit)} ${this.esc(m.unit)}</td>
+                    <td>${this.esc(m.quantity)} ${this.esc(m.unit)}</td>
+                    <td>${this.fmt(m.cost)}</td>
+                </tr>`;
+        });
+
+        return `
+            <div class="doc-header">
+                <div class="doc-title">ISHLAB CHIQARISH TO'G'RISIDA DALOLATNOMA</div>
+                <div class="doc-meta">№ ${this.esc(number)} &nbsp;&nbsp; Sana: ${this.formatDate(date)}</div>
+            </div>
+            ${this.companyBlock(company, 'Ishlab chiqaruvchi tashkilot')}
+            <p>Biz, quyida imzo chekuvchilar, "<strong>${this.esc(recipeName)}</strong>" kalkulyatsiyasi (ishlab chiqarish retsepti) asosida quyidagi mahsulot № ${this.esc(invoiceNumber)} elektron hisob-fakturada ko'rsatilgan miqdorda ishlab chiqarilganligini tasdiqlaymiz:</p>
+            <table class="doc-table">
+                <thead><tr><th>Mahsulot</th><th>Ishlab chiqarilgan miqdor</th><th>Birlik tannarx</th><th>Jami tannarx</th></tr></thead>
+                <tbody>
+                    <tr>
+                        <td>${this.esc(finishedProductName)}</td>
+                        <td>${this.esc(producedQuantity)} ${this.esc(unit)}</td>
+                        <td>${this.fmt(unitCost)}</td>
+                        <td>${this.fmt(totalCost)}</td>
+                    </tr>
+                </tbody>
+            </table>
+            <p><strong>Kalkulyatsiya tarkibi (xom ashyo/materiallar sarfi):</strong></p>
+            <table class="doc-table">
+                <thead><tr><th>#</th><th>Xom ashyo/material</th><th>1 birlik uchun</th><th>Jami sarflandi</th><th>Tannarxi</th></tr></thead>
+                <tbody>${materialRows}</tbody>
+            </table>
+            <p>Xom ashyo tannarxi: <strong>${this.fmt(materialCost)} so'm</strong></p>
+            <p>Ishlov/mehnat xarajati ustamasi (${this.esc(markupPercent)}%): <strong>${this.fmt(markupAmount)} so'm</strong></p>
+            <p><strong>Jami ishlab chiqarish tannarxi:</strong> ${this.fmt(totalCost)} so'm (${this.fmt(unitCost)} so'm/birlik)</p>
+            <p><strong>Elektron hisob-faktura № ${this.esc(invoiceNumber)} bo'yicha sotish narxi:</strong> ${this.fmt(sellingTotal)} so'm</p>
+            <p><strong>Taxminiy foyda:</strong> ${this.fmt(profit)} so'm</p>
+            <p class="doc-note">Ushbu dalolatnoma "📨 Elektron hujjatlar almashinuvi" bo'limidan import qilingan hisob-faktura asosida avtomatik shakllantirilgan.</p>
+            ${this.signatureBlock(company, '<p>Ishlab chiqarish mas\'uli: _________________________ &nbsp; imzo: _______________</p>')}
+        `;
+    }
+
     build(type, data) {
         switch (type) {
             case 'invoice-faktura': return this.buildInvoiceFaktura(data);

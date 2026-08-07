@@ -494,6 +494,10 @@ tbody tr:hover {
     width: 90%;
 }
 
+#confirmModalMessage {
+    white-space: pre-line;
+}
+
 .modal-header {
     margin-bottom: 1.5rem;
     border-bottom: 2px solid var(--primary-color);
@@ -914,6 +918,27 @@ tbody tr:hover {
     .list-container {
         grid-template-columns: 1fr;
     }
+
+    /* Tor ekranlarda jadval matni siqilib kesilmasin - gorizontal scroll bilan to'liq o'qiladi */
+    .products-table,
+    .transactions-table,
+    .recent-transactions {
+        display: block;
+        overflow-x: auto;
+        table-layout: auto;
+        min-width: 100%;
+    }
+
+    .products-table td,
+    .products-table th,
+    .transactions-table td,
+    .transactions-table th,
+    .recent-transactions td,
+    .recent-transactions th {
+        white-space: nowrap;
+        overflow: visible;
+        text-overflow: unset;
+    }
 }
 
 @media (max-width: 480px) {
@@ -1149,4 +1174,99 @@ tbody tr:hover {
 
 .doc-exchange-pointer {
     text-align: center;
+}
+
+/* MIJOZLAR/YETKAZIB BERUVCHILAR QARZDORLIK GRAFIGI */
+.balance-chart-section {
+    margin-bottom: 2rem;
+}
+
+.balance-chart-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 1.25rem;
+}
+
+.stat-chip.balance-chip-debt { border-color: var(--warning-color); color: var(--warning-color); }
+.stat-chip.balance-chip-debt strong { color: var(--warning-color); }
+.stat-chip.balance-chip-credit { border-color: var(--success-color); color: var(--success-color); }
+.stat-chip.balance-chip-credit strong { color: var(--success-color); }
+
+.balance-chart-row {
+    display: grid;
+    grid-template-columns: minmax(120px, 220px) 1fr minmax(170px, auto);
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.45rem 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.balance-chart-row:last-child {
+    border-bottom: none;
+}
+
+.balance-chart-label {
+    font-weight: 600;
+    color: var(--text-dark);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.balance-chart-track {
+    background: var(--light-bg);
+    border-radius: 0.5rem;
+    height: 1.1rem;
+    overflow: hidden;
+}
+
+.balance-chart-bar {
+    height: 100%;
+    border-radius: 0.5rem;
+    min-width: 2px;
+}
+
+.balance-chart-bar.balance-bar-debt { background: var(--warning-color); }
+.balance-chart-bar.balance-bar-credit { background: var(--success-color); }
+
+.balance-chart-value {
+    font-size: 0.85rem;
+    color: var(--text-light);
+    white-space: nowrap;
+    text-align: right;
+}
+
+.balance-chart-tag {
+    font-size: 0.75rem;
+    opacity: 0.8;
+}
+
+.balance-report-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+    padding-bottom: 1.25rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.balance-report-controls label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    color: var(--text-light);
+}
+
+@media (max-width: 768px) {
+    .balance-chart-row {
+        grid-template-columns: 1fr;
+        gap: 0.35rem;
+    }
+
+    .balance-chart-value {
+        text-align: left;
+    }
 }

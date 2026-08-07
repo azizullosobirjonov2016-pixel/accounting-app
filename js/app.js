@@ -306,7 +306,7 @@ class AccountingApp {
             const result = await api.login(username, password);
             this.currentUser = result.user;
         } catch (err) {
-            alert('Noto\'g\'ri foydalanuvchi nomi yoki parol!');
+            this.showMessage('Noto\'g\'ri foydalanuvchi nomi yoki parol!', 'error');
             return;
         }
 
@@ -330,7 +330,7 @@ class AccountingApp {
         try {
             await api.register(username, password, name);
         } catch (err) {
-            alert(err.body?.error || 'Administrator yaratib bo\'lmadi (balki foydalanuvchilar allaqachon mavjud)');
+            this.showMessage(err.body?.error || 'Administrator yaratib bo\'lmadi (balki foydalanuvchilar allaqachon mavjud)', 'error');
             return;
         }
 
@@ -338,7 +338,7 @@ class AccountingApp {
             const result = await api.login(username, password);
             this.currentUser = result.user;
         } catch (err) {
-            alert('Administrator yaratildi, lekin avtomatik kirish muvaffaqiyatsiz. Iltimos, qo\'lda kiring.');
+            this.showMessage('Administrator yaratildi, lekin avtomatik kirish muvaffaqiyatsiz. Iltimos, qo\'lda kiring.', 'warning');
             document.getElementById('bootstrapForm').style.display = 'none';
             document.getElementById('loginForm').style.display = '';
             return;
@@ -372,8 +372,8 @@ class AccountingApp {
         }
     }
 
-    handleLogout() {
-        if (confirm('Tizimdan chiqishni xohlaysizmi?')) {
+    async handleLogout() {
+        if (await this.confirmDialog('Tizimdan chiqishni xohlaysizmi?')) {
             api.logout();
             location.reload();
         }
@@ -414,6 +414,10 @@ class AccountingApp {
         document.getElementById('categoryFilter').addEventListener('change', () => this.filterProducts());
         document.getElementById('stockFilter').addEventListener('change', () => this.filterProducts());
 
+        // Clients/suppliers search
+        document.getElementById('clientSearch')?.addEventListener('input', () => this.displayClients());
+        document.getElementById('supplierSearch')?.addEventListener('input', () => this.displaySuppliers());
+
         // Modal close buttons
         document.querySelectorAll('.close').forEach(closeBtn => {
             closeBtn.addEventListener('click', () => {
@@ -424,9 +428,26 @@ class AccountingApp {
 
         // Close modals when clicking outside
         window.addEventListener('click', (e) => {
+            if (e.target.id === 'confirmModal') {
+                document.getElementById('confirmModalCancel').click();
+                return;
+            }
             if (e.target.classList.contains('modal')) {
                 e.target.style.display = 'none';
             }
+        });
+
+        // Close modals with Escape key (login modal excluded - it can't be dismissed without logging in)
+        document.addEventListener('keydown', (e) => {
+            if (e.key !== 'Escape') return;
+            if (document.getElementById('confirmModal').classList.contains('active')) {
+                document.getElementById('confirmModalCancel').click();
+                return;
+            }
+            ['addProductModal', 'stockMovementModal'].forEach(id => {
+                const modal = document.getElementById(id);
+                if (modal && modal.style.display === 'block') modal.style.display = 'none';
+            });
         });
 
         // Transaction filters
@@ -439,6 +460,10 @@ class AccountingApp {
         document.getElementById('docExchangeTypeFilter')?.addEventListener('change', () => this.displayDocumentExchange());
         document.getElementById('docExchangeStatusFilter')?.addEventListener('change', () => this.displayDocumentExchange());
         document.getElementById('docExchangeSearch')?.addEventListener('input', () => this.displayDocumentExchange());
+
+        // Sayt harakatlari tarixi
+        document.getElementById('activitySearch')?.addEventListener('input', () => this.displayActivityLog());
+        document.getElementById('activityRefreshBtn')?.addEventListener('click', () => this.loadActivityLog());
 
         // Production actions
         document.getElementById('productionForm').addEventListener('submit', (e) => this.handleAddProductionOrder(e));
@@ -498,6 +523,21 @@ class AccountingApp {
         this.setupExcelToolbar('transactions', this.exportTransactionsToExcel, this.importTransactionsFromExcel);
         this.setupExcelToolbar('employees', this.exportEmployeesToExcel, this.importEmployeesFromExcel);
 
+        // Elektron hujjatlar almashinuvi — soliq.uz/Didox "docs_<STIR>.xlsx" formatiga moslashtirilgan,
+        // shuning uchun generic setupExcelToolbar() o'rniga alohida ulanadi (bespoke shablon/format).
+        document.getElementById('docExchangeTemplateBtn')?.addEventListener('click', () => excelManager.downloadDocExchangeTemplate());
+        document.getElementById('docExchangeExportBtn')?.addEventListener('click', () => this.exportDocumentExchangeToExcel());
+        document.getElementById('docExchangeImportBtn')?.addEventListener('click', () => document.getElementById('docExchangeImportInput')?.click());
+        document.getElementById('docExchangeImportInput')?.addEventListener('change', (e) => this.importDocumentExchangeFromExcel(e));
+
+        // Mijozlar/Yetkazib beruvchilar — davr bo'yicha qarzdorlik-haqdorlik grafigi va Excel hisoboti
+        document.getElementById('clientsBalanceReportBtn')?.addEventListener('click', () => this.exportPartyBalanceReport('client'));
+        document.getElementById('suppliersBalanceReportBtn')?.addEventListener('click', () => this.exportPartyBalanceReport('supplier'));
+        document.getElementById('clientsBalanceFrom')?.addEventListener('change', () => this.renderPartyBalanceChart('client'));
+        document.getElementById('clientsBalanceTo')?.addEventListener('change', () => this.renderPartyBalanceChart('client'));
+        document.getElementById('suppliersBalanceFrom')?.addEventListener('change', () => this.renderPartyBalanceChart('supplier'));
+        document.getElementById('suppliersBalanceTo')?.addEventListener('change', () => this.renderPartyBalanceChart('supplier'));
+
         // Documents (Hujjatlar)
         document.getElementById('companyInfoForm')?.addEventListener('submit', (e) => this.handleSaveCompanyInfo(e));
         document.getElementById('documentType')?.addEventListener('change', () => this.renderDocumentDynamicFields());
@@ -548,8 +588,16 @@ class AccountingApp {
         } else if (tabName === 'inventory') {
             return this.loadInventory();
         } else if (tabName === 'clients') {
+            this.editingClientId = null;
+            document.getElementById('clientForm').reset();
+            const clientSubmitBtn = document.querySelector('#clientForm button[type="submit"]');
+            if (clientSubmitBtn) clientSubmitBtn.textContent = 'Qo\'shish';
             return this.displayClients();
         } else if (tabName === 'suppliers') {
+            this.editingSupplierId = null;
+            document.getElementById('supplierForm').reset();
+            const supplierSubmitBtn = document.querySelector('#supplierForm button[type="submit"]');
+            if (supplierSubmitBtn) supplierSubmitBtn.textContent = 'Qo\'shish';
             return this.displaySuppliers();
         } else if (tabName === 'transactions') {
             return this.displayTransactions();
@@ -565,6 +613,8 @@ class AccountingApp {
             return this.loadDocuments();
         } else if (tabName === 'company') {
             return this.loadCompanyInfoForm();
+        } else if (tabName === 'activity') {
+            return this.loadActivityLog();
         }
     }
 
@@ -638,6 +688,47 @@ class AccountingApp {
             titleEl.textContent = '🏢 Ombor Boshqaruv Tizimi';
             subtitleEl.textContent = 'Mukammal buxgalteriya hisobi va oson ombor boshqaruvi';
         }
+    }
+
+    // SAYT HARAKATLARI TARIXI — serverdagi har bir muvaffaqiyatli POST/PUT/DELETE avtomatik qayd etiladi
+    activityActionLabel(method) {
+        const labels = { POST: "➕ Qo'shildi", PUT: '✏️ Yangilandi', DELETE: "🗑️ O'chirildi" };
+        return labels[method] || method;
+    }
+
+    async loadActivityLog() {
+        this.activityLogCache = await api.getActivityLog(200);
+        this.displayActivityLog();
+    }
+
+    displayActivityLog() {
+        const tbody = document.getElementById('activityTableBody');
+        if (!tbody) return;
+        const rows = this.activityLogCache || [];
+        const search = (document.getElementById('activitySearch')?.value || '').toLowerCase().trim();
+
+        const filtered = search
+            ? rows.filter(r => `${r.displayName || ''} ${r.username || ''} ${r.description || ''}`.toLowerCase().includes(search))
+            : rows;
+
+        tbody.innerHTML = '';
+        if (filtered.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" class="empty-state">Hozircha harakatlar tarixi bo\'sh</td></tr>';
+            return;
+        }
+
+        filtered.forEach(r => {
+            const row = document.createElement('tr');
+            const when = new Date(r.createdAt);
+            const whenStr = isNaN(when.getTime()) ? r.createdAt : when.toLocaleString('uz-UZ');
+            row.innerHTML = `
+                <td>${whenStr}</td>
+                <td>${r.displayName || r.username || 'Noma\'lum'}</td>
+                <td>${this.activityActionLabel(r.method)}</td>
+                <td>${r.description || ''}</td>
+            `;
+            tbody.appendChild(row);
+        });
     }
 
     async updateDocumentClientDropdown() {
@@ -814,7 +905,10 @@ class AccountingApp {
                 ? (data.reconPartyType === 'client' ? reconPartyId : null)
                 : (effectiveClient ? effectiveClient.id : null),
             supplierId: type === 'reconciliation-act' && data.reconPartyType === 'supplier' ? reconPartyId : null,
-            html
+            html,
+            meta: type === 'invoice-faktura' && items && items.length
+                ? { items, currency: currency || "so'm", vatRate: data.vatRate }
+                : null
         };
     }
 
@@ -903,7 +997,7 @@ class AccountingApp {
     }
 
     async deleteSavedDocument(id) {
-        if (!confirm("Hujjatni o'chirishni tasdiqlaysizmi?")) return;
+        if (!(await this.confirmDialog("Hujjatni o'chirishni tasdiqlaysizmi?"))) return;
         try {
             await api.deleteDocument(id);
         } catch (err) {
@@ -1067,7 +1161,7 @@ class AccountingApp {
             this.showMessage('Faqat menejeri va administratorlar o\'chira oladi', 'error');
             return;
         }
-        if (!confirm('Xodimni o\'chirishni xohlaysizmi?')) return;
+        if (!(await this.confirmDialog('Xodimni o\'chirishni xohlaysizmi?'))) return;
         try {
             await api.deleteEmployee(empId);
         } catch (err) {
@@ -1084,7 +1178,7 @@ class AccountingApp {
             this.showMessage('Faqat menejeri va administratorlar o\'chira oladi', 'error');
             return;
         }
-        if (!confirm('Yozuvni o\'chirishni xohlaysizmi?')) return;
+        if (!(await this.confirmDialog('Yozuvni o\'chirishni xohlaysizmi?'))) return;
         try {
             await api.deletePayrollRecord(id);
         } catch (err) {
@@ -1142,6 +1236,129 @@ class AccountingApp {
         });
     }
 
+    // MIJOZLAR/YETKAZIB BERUVCHILAR QARZDORLIK GRAFIGI — tanlangan davr uchun, "Mijozlar_<boshi>_<oxiri>.xlsx"
+    // Excel hisobotidagi bilan bir xil hisob-kitob (Boshlanish qoldig'i + Debet - Kredit = Yakuniy qoldiq)
+    // asosida, shu grafik pastroqdagi "📊 Davr bo'yicha Excel hisobot" bilan har doim mos keladi.
+    async renderPartyBalanceChart(kind) {
+        const isSupplier = kind === 'supplier';
+        const chartEl = document.getElementById(isSupplier ? 'suppliersBalanceChart' : 'clientsBalanceChart');
+        const summaryEl = document.getElementById(isSupplier ? 'suppliersBalanceSummary' : 'clientsBalanceSummary');
+        if (!chartEl) return;
+
+        const fromInput = document.getElementById(isSupplier ? 'suppliersBalanceFrom' : 'clientsBalanceFrom');
+        const toInput = document.getElementById(isSupplier ? 'suppliersBalanceTo' : 'clientsBalanceTo');
+        if (fromInput && !fromInput.value) fromInput.value = `${new Date().getFullYear()}-01-01`;
+        if (toInput && !toInput.value) toInput.value = new Date().toISOString().split('T')[0];
+        const fromDate = fromInput?.value || '';
+        const toDate = toInput?.value || '';
+
+        const [parties, transactions] = await Promise.all([
+            isSupplier ? api.getSuppliers() : api.getClients(),
+            api.getTransactions()
+        ]);
+
+        const balances = parties
+            .map(p => ({ name: p.name, ...this.computePartyPeriodBalance(transactions, p.id, isSupplier, fromDate, toDate) }))
+            .filter(p => Math.abs(p.closing) > 0.5)
+            .sort((a, b) => Math.abs(b.closing) - Math.abs(a.closing));
+
+        const totalDebt = balances.filter(p => p.closing > 0).reduce((s, p) => s + p.closing, 0);
+        const totalCredit = balances.filter(p => p.closing < 0).reduce((s, p) => s + Math.abs(p.closing), 0);
+        const debtLabel = isSupplier ? "Bizning qarzimiz (ularga)" : 'Mijozlar qarzi (bizga)';
+        const creditLabel = isSupplier ? "Ortiqcha to'langan (ular qaytarishi kerak)" : "Ortiqcha to'lov (biz qaytarishimiz kerak)";
+
+        if (summaryEl) {
+            summaryEl.innerHTML = `
+                <div class="stat-chip balance-chip-debt"><strong>${this.formatNumber(totalDebt)}</strong> so'm — ${debtLabel}</div>
+                <div class="stat-chip balance-chip-credit"><strong>${this.formatNumber(totalCredit)}</strong> so'm — ${creditLabel}</div>
+            `;
+        }
+
+        if (balances.length === 0) {
+            chartEl.innerHTML = `<p class="empty-state">Tanlangan davrda qarzdorlik yoki ortiqcha to'lov aniqlanmadi.</p>`;
+            return;
+        }
+
+        const TOP_N = 15;
+        const shown = balances.slice(0, TOP_N);
+        const maxAbs = Math.max(...shown.map(p => Math.abs(p.closing)));
+
+        let rows = shown.map(p => {
+            const pct = maxAbs ? Math.round((Math.abs(p.closing) / maxAbs) * 100) : 0;
+            const cls = p.closing > 0 ? 'balance-bar-debt' : 'balance-bar-credit';
+            const tag = p.closing > 0 ? (isSupplier ? 'qarzimiz' : 'qarzi bor') : "ortiqcha to'lov";
+            const detail = `Boshlanish: ${this.formatNumber(p.opening)} | Debet: ${this.formatNumber(p.debit)} | Kredit: ${this.formatNumber(p.credit)}`;
+            return `
+                <div class="balance-chart-row" title="${detail}">
+                    <div class="balance-chart-label">${p.name}</div>
+                    <div class="balance-chart-track">
+                        <div class="balance-chart-bar ${cls}" style="width:${pct}%"></div>
+                    </div>
+                    <div class="balance-chart-value">${this.formatNumber(Math.abs(p.closing))} so'm <span class="balance-chart-tag">${tag}</span></div>
+                </div>`;
+        }).join('');
+
+        if (balances.length > TOP_N) {
+            rows += `<p class="excel-hint">... yana ${balances.length - TOP_N} ta kontragent (eng yuqori ${TOP_N} tasi ko'rsatilmoqda)</p>`;
+        }
+
+        chartEl.innerHTML = rows;
+    }
+
+    // Bitta kontragent uchun davr bo'yicha boshlang'ich qoldiq (fromDate'dan oldingi barcha tranzaksiyalar) +
+    // davr ichidagi Debet/Kredit + yakuniy qoldiq. buildReconciliationData() dagi bitta-kontragentli hisob-kitobning
+    // barcha mijoz/yetkazib beruvchi bo'yicha umumlashtirilgan varianti.
+    computePartyPeriodBalance(transactions, partyId, isSupplier, fromDate, toDate) {
+        let opening = 0, debit = 0, credit = 0;
+        transactions.forEach(t => {
+            const matches = isSupplier ? t.supplierId === partyId : t.clientId === partyId;
+            if (!matches) return;
+            const isDebit = isSupplier ? t.type === 'expense' : t.type === 'income';
+            const amount = parseFloat(t.amount) || 0;
+            const tDate = t.date ? String(t.date).split('T')[0] : '';
+            if (fromDate && tDate < fromDate) {
+                opening += isDebit ? amount : -amount;
+            } else if (!toDate || tDate <= toDate) {
+                if (isDebit) debit += amount; else credit += amount;
+            }
+        });
+        return { opening, debit, credit, closing: opening + debit - credit };
+    }
+
+    // "Mijozlar_<boshi>_<oxiri>.xlsx" andazasi bo'yicha har bir kontragentning davr boshi/oxiri qoldig'ini Excel'ga chiqaradi
+    async exportPartyBalanceReport(kind) {
+        const isSupplier = kind === 'supplier';
+        const fromInput = document.getElementById(isSupplier ? 'suppliersBalanceFrom' : 'clientsBalanceFrom');
+        const toInput = document.getElementById(isSupplier ? 'suppliersBalanceTo' : 'clientsBalanceTo');
+        const fromDate = fromInput?.value || `${new Date().getFullYear()}-01-01`;
+        const toDate = toInput?.value || new Date().toISOString().split('T')[0];
+        if (fromInput) fromInput.value = fromDate;
+        if (toInput) toInput.value = toDate;
+
+        if (fromDate > toDate) {
+            this.showMessage("Davr boshi davr oxiridan keyin bo'lishi mumkin emas", 'error');
+            return;
+        }
+
+        const [parties, transactions] = await Promise.all([
+            isSupplier ? api.getSuppliers() : api.getClients(),
+            api.getTransactions()
+        ]);
+
+        const rows = parties
+            .map(p => ({ name: p.name, stir: p.stir, ...this.computePartyPeriodBalance(transactions, p.id, isSupplier, fromDate, toDate) }))
+            .filter(r => Math.abs(r.opening) > 0.5 || Math.abs(r.debit) > 0.5 || Math.abs(r.credit) > 0.5)
+            .sort((a, b) => Math.abs(b.closing) - Math.abs(a.closing));
+
+        if (rows.length === 0) {
+            this.showMessage("Tanlangan davrda hech qanday kontragent bo'yicha harakat topilmadi", 'error');
+            return;
+        }
+
+        excelManager.exportPartyBalanceReport(kind, rows, fromDate, toDate);
+        this.showMessage(`${rows.length} ta kontragent bo'yicha hisobot Excel'ga yuklab olindi`, 'success');
+    }
+
     // CLIENTS
     async handleAddClient(e) {
         e.preventDefault();
@@ -1155,29 +1372,45 @@ class AccountingApp {
             address: document.getElementById('clientAddress').value
         };
 
+        const submitBtn = document.querySelector('#clientForm button[type="submit"]');
         try {
-            await api.addClient(client);
+            await this.withLoading(submitBtn, async () => {
+                if (this.editingClientId) {
+                    await api.updateClient(this.editingClientId, client);
+                } else {
+                    await api.addClient(client);
+                }
+            });
         } catch (err) {
-            this.showMessage('Mijoz qo\'shishda xato: ' + err.message, 'error');
+            this.showMessage('Mijozni saqlashda xato: ' + err.message, 'error');
             return;
         }
 
+        const wasEditing = !!this.editingClientId;
+        this.editingClientId = null;
+        submitBtn.textContent = 'Qo\'shish';
         document.getElementById('clientForm').reset();
 
         await this.displayClients();
         await this.updateClientDropdowns();
         await this.updateSupplierDropdowns();
 
-        this.showMessage('Mijoz muvaffaqiyatli qo\'shildi', 'success');
+        this.showMessage(wasEditing ? 'Mijoz muvaffaqiyatli yangilandi' : 'Mijoz muvaffaqiyatli qo\'shildi', 'success');
     }
 
-    async displayClients() {
-        const clients = await api.getClients();
+    async displayClients(searchTerm) {
+        await this.renderPartyBalanceChart('client');
+
+        const term = (searchTerm !== undefined ? searchTerm : (document.getElementById('clientSearch')?.value || '')).toLowerCase();
+        let clients = await api.getClients();
+        if (term) {
+            clients = clients.filter(c => (c.name || '').toLowerCase().includes(term));
+        }
         const container = document.getElementById('clientsList');
         container.innerHTML = '';
 
         if (clients.length === 0) {
-            container.innerHTML = '<div class="empty-state"><p>Hali mijoz qo\'shilmagan</p></div>';
+            container.innerHTML = `<div class="empty-state"><p>${term ? 'Shartga mos mijoz topilmadi' : 'Hali mijoz qo\'shilmagan'}</p></div>`;
             return;
         }
 
@@ -1225,7 +1458,7 @@ class AccountingApp {
             this.showMessage('Faqat menejeri va administratorlar o\'chira oladi', 'error');
             return;
         }
-        if (confirm('Ushbu mijozni o\'chirishga ishonch hosil qildingizmi?')) {
+        if (await this.confirmDialog('Ushbu mijozni o\'chirishga ishonch hosil qildingizmi?')) {
             try {
                 await api.deleteClient(clientId);
             } catch (err) {
@@ -1240,9 +1473,19 @@ class AccountingApp {
 
     async editClient(clientId) {
         const client = await api.getClientById(clientId);
-        if (client) {
-            alert('Tahrirlash funktsiyasi tez orada qo\'shilinadi');
-        }
+        if (!client) return;
+
+        document.getElementById('clientName').value = client.name || '';
+        document.getElementById('clientSTIR').value = client.stir || '';
+        document.getElementById('clientBankAccount').value = client.bankAccount || '';
+        document.getElementById('clientMfo').value = client.mfo || '';
+        document.getElementById('clientPhone').value = client.phone || '';
+        document.getElementById('clientAddress').value = client.address || '';
+
+        this.editingClientId = clientId;
+        const submitBtn = document.querySelector('#clientForm button[type="submit"]');
+        if (submitBtn) submitBtn.textContent = 'Yangilash';
+        document.getElementById('clientForm').scrollIntoView({ behavior: 'smooth' });
     }
 
     // SUPPLIERS
@@ -1259,28 +1502,44 @@ class AccountingApp {
             productType: document.getElementById('supplierProductType').value
         };
 
+        const submitBtn = document.querySelector('#supplierForm button[type="submit"]');
         try {
-            await api.addSupplier(supplier);
+            await this.withLoading(submitBtn, async () => {
+                if (this.editingSupplierId) {
+                    await api.updateSupplier(this.editingSupplierId, supplier);
+                } else {
+                    await api.addSupplier(supplier);
+                }
+            });
         } catch (err) {
-            this.showMessage('Yetkazib beruvchi qo\'shishda xato: ' + err.message, 'error');
+            this.showMessage('Yetkazib beruvchini saqlashda xato: ' + err.message, 'error');
             return;
         }
 
+        const wasEditing = !!this.editingSupplierId;
+        this.editingSupplierId = null;
+        submitBtn.textContent = 'Qo\'shish';
         document.getElementById('supplierForm').reset();
 
         await this.displaySuppliers();
         await this.updateSupplierDropdowns();
 
-        this.showMessage('Yetkazib beruvchi muvaffaqiyatli qo\'shildi', 'success');
+        this.showMessage(wasEditing ? 'Yetkazib beruvchi muvaffaqiyatli yangilandi' : 'Yetkazib beruvchi muvaffaqiyatli qo\'shildi', 'success');
     }
 
-    async displaySuppliers() {
-        const suppliers = await api.getSuppliers();
+    async displaySuppliers(searchTerm) {
+        await this.renderPartyBalanceChart('supplier');
+
+        const term = (searchTerm !== undefined ? searchTerm : (document.getElementById('supplierSearch')?.value || '')).toLowerCase();
+        let suppliers = await api.getSuppliers();
+        if (term) {
+            suppliers = suppliers.filter(s => (s.name || '').toLowerCase().includes(term));
+        }
         const container = document.getElementById('suppliersList');
         container.innerHTML = '';
 
         if (suppliers.length === 0) {
-            container.innerHTML = '<div class="empty-state"><p>Hali yetkazib beruvchi qo\'shilmagan</p></div>';
+            container.innerHTML = `<div class="empty-state"><p>${term ? 'Shartga mos yetkazib beruvchi topilmadi' : 'Hali yetkazib beruvchi qo\'shilmagan'}</p></div>`;
             return;
         }
 
@@ -1326,7 +1585,7 @@ class AccountingApp {
             this.showMessage('Faqat menejeri va administratorlar o\'chira oladi', 'error');
             return;
         }
-        if (confirm('Ushbu yetkazib beruvchini o\'chirishga ishonch hosil qildingizmi?')) {
+        if (await this.confirmDialog('Ushbu yetkazib beruvchini o\'chirishga ishonch hosil qildingizmi?')) {
             try {
                 await api.deleteSupplier(supplierId);
             } catch (err) {
@@ -1341,9 +1600,20 @@ class AccountingApp {
 
     async editSupplier(supplierId) {
         const supplier = await api.getSupplierById(supplierId);
-        if (supplier) {
-            alert('Tahrirlash funktsiyasi tez orada qo\'shilinadi');
-        }
+        if (!supplier) return;
+
+        document.getElementById('supplierName').value = supplier.name || '';
+        document.getElementById('supplierSTIR').value = supplier.stir || '';
+        document.getElementById('supplierBankAccount').value = supplier.bankAccount || '';
+        document.getElementById('supplierMfo').value = supplier.mfo || '';
+        document.getElementById('supplierPhone').value = supplier.phone || '';
+        document.getElementById('supplierAddress').value = supplier.address || '';
+        document.getElementById('supplierProductType').value = supplier.productType || '';
+
+        this.editingSupplierId = supplierId;
+        const submitBtn = document.querySelector('#supplierForm button[type="submit"]');
+        if (submitBtn) submitBtn.textContent = 'Yangilash';
+        document.getElementById('supplierForm').scrollIntoView({ behavior: 'smooth' });
     }
 
     // PRODUCTION
@@ -1647,7 +1917,7 @@ class AccountingApp {
             this.showMessage('Faqat menejeri va administratorlar o\'chira oladi', 'error');
             return;
         }
-        if (!confirm('Ushbu retseptni o\'chirishga ishonchingiz komilmi?')) {
+        if (!(await this.confirmDialog('Ushbu retseptni o\'chirishga ishonchingiz komilmi?'))) {
             return;
         }
 
@@ -1756,7 +2026,7 @@ class AccountingApp {
             this.showMessage('Faqat menejeri va administratorlar o\'chira oladi', 'error');
             return;
         }
-        if (!confirm('Ishlab chiqarish buyurtmasini o\'chirish zahira miqdorlarini tiklaydi. Davom etilsinmi?')) {
+        if (!(await this.confirmDialog('Ishlab chiqarish buyurtmasini o\'chirish zahira miqdorlarini tiklaydi. Davom etilsinmi?'))) {
             return;
         }
 
@@ -1787,12 +2057,15 @@ class AccountingApp {
         const currency = document.getElementById('transCurrency')?.value || '';
 
         if (!clientId) {
-            alert('Iltimos, mijozni tanlang');
+            this.showMessage('Iltimos, mijozni tanlang', 'warning');
             return;
         }
 
+        const submitBtn = document.querySelector('#transactionForm button[type="submit"]');
         try {
-            await api.addTransaction({ date, clientId, supplierId, type, category, amount, description, currency: currency || undefined });
+            await this.withLoading(submitBtn, () =>
+                api.addTransaction({ date, clientId, supplierId, type, category, amount, description, currency: currency || undefined })
+            );
         } catch (err) {
             this.showMessage('Tranzaksiya qo\'shishda xato: ' + err.message, 'error');
             return;
@@ -1893,7 +2166,7 @@ class AccountingApp {
             this.showMessage('Faqat menejeri va administratorlar o\'chira oladi', 'error');
             return;
         }
-        if (confirm('Ushbu tranzaksiyani o\'chirishga ishonch hosil qildingizmi?')) {
+        if (await this.confirmDialog('Ushbu tranzaksiyani o\'chirishga ishonch hosil qildingizmi?')) {
             try {
                 await api.deleteTransaction(transId);
             } catch (err) {
@@ -2245,7 +2518,7 @@ class AccountingApp {
         const reportContent = document.getElementById('reportContent').innerHTML;
         
         if (!reportContent) {
-            alert('Iltimos, avval hisobot yarating');
+            this.showMessage('Iltimos, avval hisobot yarating', 'warning');
             return;
         }
 
@@ -2414,6 +2687,7 @@ class AccountingApp {
         document.getElementById('taxTurnover').value = settings.taxTurnover;
         document.getElementById('taxSSV').value = settings.taxSSV;
         document.getElementById('taxNDFL').value = settings.taxNDFL;
+        document.getElementById('productionMarkup').value = settings.productionMarkup ?? 20;
         document.getElementById('autoCalculateTax').checked = settings.autoCalculateTax;
         document.getElementById('notifications').checked = settings.notifications;
         document.getElementById('showCurrencySymbol').checked = settings.showCurrencySymbol !== false;
@@ -2445,6 +2719,7 @@ class AccountingApp {
             taxTurnover: parseFloat(document.getElementById('taxTurnover').value),
             taxSSV: parseFloat(document.getElementById('taxSSV').value),
             taxNDFL: parseFloat(document.getElementById('taxNDFL').value),
+            productionMarkup: parseFloat(document.getElementById('productionMarkup').value) || 0,
             autoCalculateTax: document.getElementById('autoCalculateTax').checked,
             notifications: document.getElementById('notifications').checked,
             defaultCurrency: document.getElementById('defaultCurrency')?.value || 'UZS',
@@ -2497,7 +2772,7 @@ class AccountingApp {
             e.target.value = '';
             return;
         }
-        if (!confirm('Fayldagi ma\'lumotlar joriy serverdagi mavjud ma\'lumotlarga QO\'SHILADI (o\'rnini bosmaydi). Davom etilsinmi?')) {
+        if (!(await this.confirmDialog('Fayldagi ma\'lumotlar joriy serverdagi mavjud ma\'lumotlarga QO\'SHILADI (o\'rnini bosmaydi). Davom etilsinmi?'))) {
             e.target.value = '';
             return;
         }
@@ -2569,8 +2844,8 @@ class AccountingApp {
                 if (data.companyInfo) await api.updateCompanyInfo(data.companyInfo);
                 if (data.settings) await api.updateSettings(data.settings);
 
-                alert('Ma\'lumotlar muvaffaqiyatli qaytarildi. Sahifa yangilanadi...');
-                window.location.reload();
+                this.showMessage('Ma\'lumotlar muvaffaqiyatli qaytarildi. Sahifa yangilanadi...', 'success');
+                setTimeout(() => window.location.reload(), 1200);
             } catch (error) {
                 this.showMessage('Faylni qayta ishlashda xato: ' + error.message, 'error');
             }
@@ -2583,10 +2858,10 @@ class AccountingApp {
             this.showMessage('Faqat administrator barcha ma\'lumotlarni o\'chira oladi', 'error');
             return;
         }
-        if (!confirm('DIQQAT: bu serverdagi umumiy (barcha foydalanuvchilar ko\'radigan) ma\'lumotlarni butunlay o\'chiradi. Davom etilsinmi?')) {
+        if (!(await this.confirmDialog('DIQQAT: bu serverdagi umumiy (barcha foydalanuvchilar ko\'radigan) ma\'lumotlarni butunlay o\'chiradi. Davom etilsinmi?', 'Diqqat!'))) {
             return;
         }
-        if (!confirm('Ishonchingiz komilmi? Bu amalni orqaga qaytarib bo\'lmaydi.')) {
+        if (!(await this.confirmDialog('Ishonchingiz komilmi? Bu amalni orqaga qaytarib bo\'lmaydi.', 'Oxirgi tasdiq'))) {
             return;
         }
 
@@ -2622,7 +2897,7 @@ class AccountingApp {
             const preview = errors.slice(0, 5).join('\n');
             const more = errors.length > 5 ? `\n... yana ${errors.length - 5} ta xato` : '';
             this.showMessage(`${base}. ${errors.length} ta qatorda xato bor.`, imported > 0 ? 'success' : 'error');
-            alert(`Import xatolari:\n${preview}${more}`);
+            this.alertDialog(`${preview}${more}`, 'Import xatolari');
         } else {
             this.showMessage(base, 'success');
         }
@@ -2943,6 +3218,279 @@ class AccountingApp {
         e.target.value = '';
     }
 
+    // Elektron hujjatlar almashinuvi — soliq.uz/Didox "docs_<STIR>.xlsx" eksport formati bilan ishlash.
+    // Har bir hisob-faktura: sarlavha (sotuvchi/xaridor rekvizitlari) + tovar/xizmat qatorlari.
+    companyInfoToDocCompany(companyInfo) {
+        return {
+            legalForm: companyInfo.companyLegalForm, name: companyInfo.companyName, stir: companyInfo.companyStir,
+            oked: companyInfo.companyOked, address: companyInfo.companyAddress, phone: companyInfo.companyPhone,
+            bankName: companyInfo.companyBankName, bankAccount: companyInfo.companyBankAccount, mfo: companyInfo.companyMfo,
+            director: companyInfo.companyDirector, accountant: companyInfo.companyAccountant
+        };
+    }
+
+    // Faqat meta (items) saqlangan elektron hisob-fakturalarni asl soliq.uz ustun formatida eksport qiladi.
+    async exportDocumentExchangeToExcel() {
+        const [documents, clients, suppliers, companyInfo] = await Promise.all([
+            api.getDocuments(), api.getClients(), api.getSuppliers(), api.getCompanyInfo()
+        ]);
+        const clientMap = new Map(clients.map(c => [c.id, c]));
+        const supplierMap = new Map(suppliers.map(s => [s.id, s]));
+        const company = {
+            stir: companyInfo.companyStir || '', name: companyInfo.companyName || '',
+            bankAccount: companyInfo.companyBankAccount || '', mfo: companyInfo.companyMfo || ''
+        };
+
+        const blocks = [];
+        documents.filter(d => d.type === 'invoice-faktura' && d.meta).forEach(d => {
+            let meta;
+            try { meta = JSON.parse(d.meta); } catch { return; }
+            if (!meta.items || !meta.items.length) return;
+
+            let seller, buyer;
+            if (d.supplierId) {
+                const supplier = supplierMap.get(d.supplierId);
+                seller = { stir: supplier?.stir || '', name: supplier?.name || '', bankAccount: supplier?.bankAccount || '', mfo: supplier?.mfo || '' };
+                buyer = company;
+            } else {
+                const client = clientMap.get(d.clientId);
+                seller = company;
+                buyer = { stir: client?.stir || '', name: client?.name || '', bankAccount: client?.bankAccount || '', mfo: client?.mfo || '' };
+            }
+
+            blocks.push({
+                date: d.date, contractNumber: meta.contractNumber || '', contractDate: meta.contractDate || '',
+                seller, buyer, vatRate: meta.vatRate || 12, items: meta.items
+            });
+        });
+
+        excelManager.exportDocExchange(blocks);
+        this.showMessage(`${blocks.length} ta elektron hisob-faktura Excel'ga eksport qilindi`, 'success');
+    }
+
+    // docExchange import paytida hisob-faktura qatoridagi mahsulotni ombordagi mahsulot bilan nomi bo'yicha
+    // (katta-kichik harflarga sezgir bo'lmagan holda) moslashtiradi va zahirani/ishlab chiqarishni yangilaydi.
+    //
+    // direction 'client' — tashkilotimiz sotuvchi (sotuv):
+    //   - ombordagi zahira faktura miqdoriga yetarli bo'lsa — zahiradan AYIRILADI (chiqim);
+    //   - zahira yetarli bo'lmasa (jumladan mahsulot umuman topilmasa, ya'ni zahira 0) va shu mahsulot
+    //     uchun "Ishlab chiqarish" bo'limida oldindan kalkulyatsiya (retsept) kiritilgan bo'lsa —
+    //     yetishmagan qism shu kalkulyatsiya bo'yicha avtomatik ishlab chiqariladi (xom ashyo omborda
+    //     yetarli bo'lsa), so'ng to'liq faktura miqdorida sotiladi (chiqim) va ishlab chiqarilgan qism
+    //     haqida tannarx/foyda ko'rsatilgan dalolatnoma hujjati shakllantiriladi;
+    //   - retsept ham topilmasa — o'tkazib yuboriladi va ogohlantirish beriladi.
+    //     (Retsept mahsulotning DB'dagi ID'siga bog'lanadi, shuning uchun mahsulot avval "Ombor"da
+    //     kamida 0 zahira bilan va unga retsept "Ishlab chiqarish"da oldindan yaratilgan bo'lishi kerak.)
+    // direction 'supplier' — tashkilotimiz xaridor (xarid) — zahiraga QO'SHILADI (kirim); topilmasa yangi mahsulot yaratiladi.
+    async applyDocExchangeInventoryItem(ctx, item, direction, date, number) {
+        const { products, recipes, errors, counters, company, defaultCurrency, markupPercent } = ctx;
+        const name = (item.name || '').trim();
+        if (!name || !item.quantity) return;
+        const norm = name.toLowerCase();
+        let product = products.find(p => (p.name || '').trim().toLowerCase() === norm);
+
+        if (direction === 'client') {
+            const available = product ? (parseFloat(product.stock) || 0) : 0;
+            const shortfall = item.quantity - available;
+
+            if (shortfall <= 0) {
+                await api.addInventoryMovement({ productId: product.id, type: 'out', quantity: item.quantity, date, description: `Hisob-faktura ${number} bo'yicha sotildi` });
+                counters.stockOut++;
+                return;
+            }
+
+            if (!product) {
+                errors.push(`"${name}" ombordan topilmadi — chiqim qilinmadi (hisob-faktura ${number})`);
+                return;
+            }
+
+            const recipe = recipes.find(r => r.finishedProductId === product.id);
+            if (!recipe) {
+                errors.push(`"${name}" ombordagi zahira yetarli emas (${available}/${item.quantity}) va unga mos kalkulyatsiya (retsept) yo'q — chiqim qilinmadi (hisob-faktura ${number})`);
+                return;
+            }
+
+            const materials = recipe.materials.map(m => ({ productId: m.productId, quantity: (m.qtyPerUnit || 0) * shortfall }));
+
+            let order;
+            try {
+                order = await api.addProductionOrder({
+                    finishedProductId: product.id, producedQuantity: shortfall, materials,
+                    date, description: `Hisob-faktura ${number} bo'yicha yetishmagan ${shortfall} ${product.unit || 'dona'} avtomatik ishlab chiqarildi ("${recipe.name}" kalkulyatsiyasi)`,
+                    recipeId: recipe.id
+                });
+            } catch (err) {
+                errors.push(`"${name}": kalkulyatsiya bo'yicha ishlab chiqarib bo'lmadi (${err.message}) — chiqim qilinmadi (hisob-faktura ${number})`);
+                return;
+            }
+            counters.produced++;
+
+            await api.addInventoryMovement({ productId: product.id, type: 'out', quantity: item.quantity, date, description: `Hisob-faktura ${number} bo'yicha sotildi` });
+            counters.stockOut++;
+
+            const materialCost = order.productionCost || 0;
+            const markupAmount = materialCost * (markupPercent / 100);
+            const totalCost = materialCost + markupAmount;
+            const unitCost = shortfall > 0 ? totalCost / shortfall : 0;
+            const sellingTotal = shortfall * (parseFloat(item.price) || 0);
+
+            const materialDetails = recipe.materials.map(m => {
+                const mp = products.find(p => p.id === m.productId);
+                const qty = (m.qtyPerUnit || 0) * shortfall;
+                return { name: mp ? mp.name : "Noma'lum", qtyPerUnit: m.qtyPerUnit, quantity: qty, unit: (mp && mp.unit) || '', cost: qty * ((mp && mp.purchasePrice) || 0) };
+            });
+
+            const certNumber = `ISHLAB-${number}-${product.id.slice(0, 6)}`;
+            const certHtml = documentManager.buildProductionCertificate({
+                company, number: certNumber, date,
+                recipeName: recipe.name, finishedProductName: product.name,
+                producedQuantity: shortfall, unit: product.unit || item.unit || 'dona',
+                materials: materialDetails, materialCost, markupPercent, markupAmount, totalCost, unitCost,
+                sellingTotal, profit: sellingTotal - totalCost, invoiceNumber: number
+            });
+
+            await api.addDocument({
+                type: 'act', number: certNumber, date, html: certHtml,
+                meta: { kind: 'production-certificate', recipeId: recipe.id, finishedProductId: product.id, producedQuantity: shortfall, materialCost, markupPercent, totalCost }
+            });
+            counters.certificates++;
+        } else {
+            if (!product) {
+                product = await api.addProduct({
+                    name, category: 'materials', unit: item.unit || 'dona',
+                    minStock: 10, purchasePrice: item.price || 0, sellingPrice: item.price || 0,
+                    default_currency: defaultCurrency
+                });
+                products.push(product);
+                counters.createdProducts++;
+            }
+            await api.addInventoryMovement({ productId: product.id, type: 'in', quantity: item.quantity, date, description: `Hisob-faktura ${number} bo'yicha xarid qilindi` });
+            counters.stockIn++;
+        }
+    }
+
+    // Bir xil sotuvchi/xaridor STIRi + shartnoma raqami + sana bo'yicha mos hujjat topilsa qayta yaratmaydi.
+    // Tashkilotingiz STIRi sotuvchi ustunida bo'lsa — kontragent "Mijozlar"ga, xaridor ustunida bo'lsa — "Yetkazib beruvchilar"ga joylashtiriladi.
+    // Har bir tovar qatori "Ombor" bo'limidagi mahsulot bilan nomi bo'yicha moslashtirilib, zahira mos ravishda kirim/chiqim qilinadi.
+    async importDocumentExchangeFromExcel(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        try {
+            const { blocks, errors } = await excelManager.readDocExchangeFile(file);
+            const [documents, clients, suppliers, companyInfo, products, settings, recipes] = await Promise.all([
+                api.getDocuments(), api.getClients(), api.getSuppliers(), api.getCompanyInfo(), api.getProducts(), api.getSettings(), api.getProductionRecipes()
+            ]);
+            const defaultCurrency = (settings && settings.defaultCurrency) || 'UZS';
+            const markupPercent = parseFloat(settings && settings.productionMarkup) || 0;
+            const invCounters = { createdProducts: 0, stockIn: 0, stockOut: 0, produced: 0, certificates: 0 };
+            const company = this.companyInfoToDocCompany(companyInfo);
+            const companyStir = (companyInfo.companyStir || '').trim();
+            if (!companyStir) {
+                this.showMessage('Avval "🏢 Tashkilot" bo\'limida STIR raqamini to\'ldiring', 'error');
+                e.target.value = '';
+                return;
+            }
+
+            const byNumber = new Map(documents.filter(d => d.number).map(d => [d.number, d]));
+
+            let created = 0, skipped = 0, createdClients = 0, createdSuppliers = 0, updatedParties = 0;
+
+            for (const b of blocks) {
+                if (!b.items.length) { skipped++; continue; }
+
+                let direction;
+                if (b.sellerStir === companyStir) direction = 'client';
+                else if (b.buyerStir === companyStir) direction = 'supplier';
+                else {
+                    errors.push(`${b.__row}-qator: hujjatda tashkilotingiz STIRi (${companyStir}) uchramadi — o'tkazib yuborildi`);
+                    skipped++;
+                    continue;
+                }
+
+                const number = b.contractNumber
+                    ? `HF-${b.contractNumber}-${b.date}`
+                    : `HF-${b.date}-${direction === 'client' ? b.buyerStir : b.sellerStir}-${b.__row}`;
+                if (byNumber.has(number)) { skipped++; continue; }
+
+                let clientId = null, supplierId = null, docCompany = company, docClient = null;
+                if (direction === 'client') {
+                    let client = (b.buyerStir && clients.find(c => c.stir && c.stir === b.buyerStir))
+                        || clients.find(c => (c.name || '').toLowerCase() === b.buyerName.toLowerCase());
+                    if (!client) {
+                        client = await api.addClient({ name: b.buyerName, stir: b.buyerStir, bankAccount: b.buyerAccount, mfo: b.buyerMfo });
+                        clients.push(client);
+                        createdClients++;
+                    } else if (!client.bankAccount || !client.mfo || !client.stir) {
+                        const upd = await api.updateClient(client.id, {
+                            name: client.name, stir: client.stir || b.buyerStir,
+                            bankAccount: client.bankAccount || b.buyerAccount, mfo: client.mfo || b.buyerMfo,
+                            phone: client.phone, address: client.address
+                        });
+                        Object.assign(client, upd);
+                        updatedParties++;
+                    }
+                    clientId = client.id;
+                    docClient = { name: client.name, stir: client.stir, address: client.address, phone: client.phone, bankAccount: client.bankAccount, mfo: client.mfo };
+                } else {
+                    let supplier = (b.sellerStir && suppliers.find(s => s.stir && s.stir === b.sellerStir))
+                        || suppliers.find(s => (s.name || '').toLowerCase() === b.sellerName.toLowerCase());
+                    if (!supplier) {
+                        supplier = await api.addSupplier({ name: b.sellerName, stir: b.sellerStir, bankAccount: b.sellerAccount, mfo: b.sellerMfo });
+                        suppliers.push(supplier);
+                        createdSuppliers++;
+                    } else if (!supplier.bankAccount || !supplier.mfo || !supplier.stir) {
+                        const upd = await api.updateSupplier(supplier.id, {
+                            name: supplier.name, stir: supplier.stir || b.sellerStir,
+                            bankAccount: supplier.bankAccount || b.sellerAccount, mfo: supplier.mfo || b.sellerMfo,
+                            phone: supplier.phone, address: supplier.address, productType: supplier.productType
+                        });
+                        Object.assign(supplier, upd);
+                        updatedParties++;
+                    }
+                    supplierId = supplier.id;
+                    // Xarid hisob-fakturasida "Sotuvchi" — yetkazib beruvchi, "Xaridor" — o'z tashkilotimiz
+                    docCompany = { name: supplier.name, stir: supplier.stir, address: supplier.address, phone: supplier.phone, bankName: '', bankAccount: supplier.bankAccount, mfo: supplier.mfo };
+                    docClient = { name: company.name, stir: company.stir, address: company.address, phone: company.phone, bankAccount: company.bankAccount, mfo: company.mfo };
+                }
+
+                const items = b.items.map(it => ({ name: it.name, quantity: it.quantity, price: it.price }));
+                const html = documentManager.build('invoice-faktura', {
+                    company: docCompany, client: docClient, date: b.date, number, items, currency: "so'm", vatRate: b.vatRate
+                });
+                const meta = { items, currency: "so'm", vatRate: b.vatRate, contractNumber: b.contractNumber, contractDate: b.contractDate };
+                const doc = await api.addDocument({ type: 'invoice-faktura', number, date: b.date, clientId, supplierId, html, meta });
+                byNumber.set(number, doc);
+                created++;
+
+                const invCtx = { products, recipes, errors, counters: invCounters, company, defaultCurrency, markupPercent };
+                for (const item of items) {
+                    await this.applyDocExchangeInventoryItem(invCtx, item, direction, b.date, number);
+                }
+            }
+
+            await this.displayDocumentExchange();
+            if (invCounters.stockIn || invCounters.stockOut || invCounters.createdProducts) {
+                await this.loadInventory();
+            }
+            if (invCounters.produced) {
+                await this.loadProduction();
+            }
+            let msg = `Hujjatlar: ${created} ta hisob-faktura yaratildi`;
+            if (skipped) msg += `, ${skipped} ta o'tkazib yuborildi (mavjud yoki bo'sh)`;
+            if (createdClients) msg += `, ${createdClients} ta yangi mijoz avtomatik yaratildi`;
+            if (createdSuppliers) msg += `, ${createdSuppliers} ta yangi yetkazib beruvchi avtomatik yaratildi`;
+            if (updatedParties) msg += `, ${updatedParties} ta kontragent rekvizitlari to'ldirildi`;
+            if (invCounters.stockIn) msg += `, ombor: ${invCounters.stockIn} ta qatorda kirim qilindi`;
+            if (invCounters.stockOut) msg += `, ombor: ${invCounters.stockOut} ta qatorda chiqim qilindi`;
+            if (invCounters.createdProducts) msg += `, ${invCounters.createdProducts} ta yangi mahsulot ombor bo'limiga qo'shildi`;
+            if (invCounters.produced) msg += `, ${invCounters.produced} ta qatorda kalkulyatsiya bo'yicha avtomatik ishlab chiqarildi (${invCounters.certificates} ta dalolatnoma shakllantirildi)`;
+            this.reportImportResult('Hujjatlar', created, errors, msg);
+        } catch (err) {
+            this.showMessage('Import xatosi: ' + err.message, 'error');
+        }
+        e.target.value = '';
+    }
+
     // INVENTORY METHODS
     async loadInventory() {
         await this.updateInventoryStats();
@@ -2964,6 +3512,9 @@ class AccountingApp {
     }
 
     showAddProductModal() {
+        this.editingProductId = null;
+        document.getElementById('productModalTitle').textContent = 'Yangi Mahsulot Qo\'shish';
+        document.getElementById('productSubmitBtn').textContent = 'Qo\'shish';
         document.getElementById('addProductModal').style.display = 'block';
         document.getElementById('productForm').reset();
     }
@@ -2983,16 +3534,25 @@ class AccountingApp {
             default_currency: selectedCurrency || defaultCurrency
         };
 
+        const submitBtn = document.getElementById('productSubmitBtn');
         try {
-            await api.addProduct(product);
+            await this.withLoading(submitBtn, async () => {
+                if (this.editingProductId) {
+                    await api.updateProduct(this.editingProductId, product);
+                } else {
+                    await api.addProduct(product);
+                }
+            });
         } catch (err) {
-            this.showMessage('Mahsulot qo\'shishda xato: ' + err.message, 'error');
+            this.showMessage('Mahsulotni saqlashda xato: ' + err.message, 'error');
             return;
         }
 
+        const wasEditing = !!this.editingProductId;
+        this.editingProductId = null;
         document.getElementById('addProductModal').style.display = 'none';
         await this.loadInventory();
-        this.showMessage('Mahsulot muvaffaqiyatli qo\'shildi', 'success');
+        this.showMessage(wasEditing ? 'Mahsulot muvaffaqiyatli yangilandi' : 'Mahsulot muvaffaqiyatli qo\'shildi', 'success');
     }
 
     showStockMovementModal(type) {
@@ -3036,7 +3596,9 @@ class AccountingApp {
         }
 
         try {
-            await api.addInventoryMovement({ productId, type: this.currentMovementType, quantity, date, description });
+            await this.withLoading(document.getElementById('movementSubmitBtn'), () =>
+                api.addInventoryMovement({ productId, type: this.currentMovementType, quantity, date, description })
+            );
         } catch (err) {
             this.showMessage('Harakatni saqlashda xato: ' + err.message, 'error');
             return;
@@ -3158,8 +3720,20 @@ class AccountingApp {
         const product = await api.getProductById(productId);
         if (!product) return;
 
-        // For now, just show a message. Could implement full edit modal later
-        this.showMessage('Tahrirlash funksiyasi tez orada qo\'shiladi', 'warning');
+        document.getElementById('productForm').reset();
+        document.getElementById('productName').value = product.name || '';
+        document.getElementById('productCategory').value = product.category || '';
+        document.getElementById('productUnit').value = product.unit || 'dona';
+        document.getElementById('minStock').value = product.minStock ?? 10;
+        document.getElementById('purchasePrice').value = product.purchasePrice ?? 0;
+        document.getElementById('sellingPrice').value = product.sellingPrice ?? 0;
+        const currencySelect = document.getElementById('productCurrency');
+        if (currencySelect) currencySelect.value = product.default_currency || '';
+
+        this.editingProductId = productId;
+        document.getElementById('productModalTitle').textContent = 'Mahsulotni Tahrirlash';
+        document.getElementById('productSubmitBtn').textContent = 'Yangilash';
+        document.getElementById('addProductModal').style.display = 'block';
     }
 
     async deleteProduct(productId) {
@@ -3167,7 +3741,7 @@ class AccountingApp {
             this.showMessage('Faqat menejeri va administratorlar o\'chira oladi', 'error');
             return;
         }
-        if (!confirm('Mahsulotni o\'chirishni xohlaysizmi? Bu harakatni bekor qilib bo\'lmaydi.')) return;
+        if (!(await this.confirmDialog('Mahsulotni o\'chirishni xohlaysizmi? Bu harakatni bekor qilib bo\'lmaydi.'))) return;
 
         try {
             await api.deleteProduct(productId);
@@ -3185,13 +3759,63 @@ class AccountingApp {
         const className = type === 'success' ? 'success-message' : type === 'warning' ? 'warning-message' : 'error-message';
         messageDiv.className = className;
         messageDiv.textContent = message;
-        
-        const container = document.querySelector('.container');
-        container.insertBefore(messageDiv, container.firstChild);
+
+        // document.body ga qo'shiladi, chunki .container login vaqtida yashirin (display:none) bo'lishi mumkin
+        document.body.appendChild(messageDiv);
 
         setTimeout(() => {
             messageDiv.remove();
         }, 3000);
+    }
+
+    // Native confirm()/alert() o'rniga ishlatiladigan modal - Promise qaytaradi
+    showConfirmModal(message, { title = 'Tasdiqlash', okText = 'Ha, davom etish', showCancel = true } = {}) {
+        return new Promise(resolve => {
+            const modal = document.getElementById('confirmModal');
+            document.getElementById('confirmModalTitle').textContent = title;
+            document.getElementById('confirmModalMessage').textContent = message;
+            const okBtn = document.getElementById('confirmModalOk');
+            const cancelBtn = document.getElementById('confirmModalCancel');
+            const closeBtn = document.getElementById('confirmModalClose');
+            okBtn.textContent = okText;
+            cancelBtn.style.display = showCancel ? '' : 'none';
+            modal.classList.add('active');
+
+            const cleanup = (result) => {
+                modal.classList.remove('active');
+                okBtn.removeEventListener('click', onOk);
+                cancelBtn.removeEventListener('click', onCancel);
+                closeBtn.removeEventListener('click', onCancel);
+                resolve(result);
+            };
+            const onOk = () => cleanup(true);
+            const onCancel = () => cleanup(false);
+            okBtn.addEventListener('click', onOk);
+            cancelBtn.addEventListener('click', onCancel);
+            closeBtn.addEventListener('click', onCancel);
+        });
+    }
+
+    confirmDialog(message, title = 'Tasdiqlash') {
+        return this.showConfirmModal(message, { title });
+    }
+
+    alertDialog(message, title = 'Xabar') {
+        return this.showConfirmModal(message, { title, okText: 'OK', showCancel: false });
+    }
+
+    // Tugmani so'rov davomida disable qilib, "Saqlanmoqda..." holatini ko'rsatadi
+    async withLoading(button, fn, loadingText = 'Saqlanmoqda...') {
+        if (!button) return fn();
+        const originalText = button.textContent;
+        button.disabled = true;
+        button.textContent = loadingText;
+        try {
+            return await fn();
+        } finally {
+            button.disabled = false;
+            button.textContent = originalText;
+        }
     }
 
     formatNumber(number) {

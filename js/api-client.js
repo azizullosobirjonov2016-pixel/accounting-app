@@ -153,6 +153,10 @@ class APIClient {
 
     getStatistics() { return this.request('GET', '/statistics'); }
 
+    // ==================== ACTIVITY LOG ====================
+
+    getActivityLog(limit = 200) { return this.request('GET', `/activity-log?limit=${limit}`); }
+
     // ==================== CURRENCIES & RATES ====================
 
     getCurrencies() { return this.request('GET', '/currencies'); }
