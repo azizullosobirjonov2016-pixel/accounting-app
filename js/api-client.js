@@ -164,6 +164,10 @@ class APIClient {
 
     getExchangeRates() { return this.request('GET', '/exchange-rates'); }
 
+    // ==================== CHART OF ACCOUNTS (Schyotlar rejasi) ====================
+
+    getChartOfAccounts() { return this.request('GET', '/chart-of-accounts'); }
+
     getExchangeRate(from, to, date = null) {
         let endpoint = `/exchange-rates?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
         if (date) endpoint += `&date=${encodeURIComponent(date)}`;

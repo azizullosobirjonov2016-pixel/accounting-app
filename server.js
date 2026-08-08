@@ -251,12 +251,48 @@ const initializeDatabase = () => {
         addColumnIfNotExists('invoices', 'vatAmount', 'vatAmount REAL');
         addColumnIfNotExists('payroll_records', 'socialTax', 'socialTax REAL');
         addColumnIfNotExists('documents', 'meta', 'meta TEXT');
+        addColumnIfNotExists('transactions', 'debitAccount', 'debitAccount TEXT');
+        addColumnIfNotExists('transactions', 'creditAccount', 'creditAccount TEXT');
+        addColumnIfNotExists('production_orders', 'overheadCost', 'overheadCost REAL DEFAULT 0');
 
         console.log('Database schema initialized');
     });
 };
 
 initializeDatabase();
+
+// ==================== CHART OF ACCOUNTS (soddalashtirilgan schyotlar rejasi, NAS asosida) ====================
+// 1C:Buxgalteriya andazasidagi kabi har bir tranzaksiya ikki tomonlama (Debet/Kredit) yoziladi.
+// Bu ro'yxat to'liq schyotlar rejasi emas, balki loyiha ehtiyoji uchun soddalashtirilgan variant.
+const CHART_OF_ACCOUNTS = {
+    '5010': { name: 'Kassa va bank hisob-kitoblari', nature: 'debit' },
+    '4010': { name: 'Xaridorlar bilan hisob-kitoblar (debitorlik qarzi)', nature: 'debit' },
+    '2710': { name: 'Tovar-moddiy zaxiralar (ombor)', nature: 'debit' },
+    '6010': { name: "Ta'minotchilar bilan hisob-kitoblar (kreditorlik qarzi)", nature: 'credit' },
+    '6410': { name: "Byudjetga soliqlar bo'yicha qarz", nature: 'credit' },
+    '6520': { name: "Ijtimoiy sug'urta bo'yicha qarz (ISHV)", nature: 'credit' },
+    '6710': { name: "Mehnatga haq to'lash bo'yicha xodimlar bilan hisob-kitoblar", nature: 'credit' },
+    '9010': { name: 'Mahsulot/xizmatlarni sotishdan daromad', nature: 'credit' },
+    '9020': { name: 'Sotilgan mahsulot/xizmat tannarxi (COGS)', nature: 'debit' },
+    '9030': { name: 'Davr xarajatlari', nature: 'debit' }
+};
+
+// Tranzaksiya turi va kategoriyasi asosida Debet/Kredit schyotlarni avtomatik aniqlaydi
+// (1C'dagi "tezkor provodka shabloni" mantig'iga o'xshash soddalashtirilgan qoida).
+function resolveAccounts(type, category) {
+    const cat = (category || '').toLowerCase();
+    if (type === 'income') {
+        if (cat === 'sales' || cat === 'services') return { debitAccount: '4010', creditAccount: '9010' };
+        return { debitAccount: '5010', creditAccount: '9010' };
+    }
+    if (cat === 'cogs') return { debitAccount: '9020', creditAccount: '2710' };
+    if (cat === 'salaries') return { debitAccount: '9030', creditAccount: '6710' };
+    if (cat === 'social_tax') return { debitAccount: '9030', creditAccount: '6520' };
+    if (cat === 'materials') return { debitAccount: '2710', creditAccount: '6010' };
+    if (['tax', 'vat', 'qqs', 'turnover_tax', 'income_tax'].includes(cat)) return { debitAccount: '9030', creditAccount: '6410' };
+    // Boshqa davriy xarajatlar (ijara, kommunal, transport va h.k.) odatda kassa/bankdan to'lanadi
+    return { debitAccount: '9030', creditAccount: '5010' };
+}
 
 // Default tax/business settings - seeded into the settings table on first run only
 const DEFAULT_SETTINGS = {
@@ -601,9 +637,11 @@ app.get('/api/inventory-movements', authenticate, async (req, res) => {
 
 // type: 'in' | 'out' | 'adjust'. quantity is always a positive number from the client;
 // the sign/semantics are resolved here, mirroring the previous localStorage logic.
+// For 'in' movements an optional unitCost recomputes the product's purchasePrice as a
+// weighted-average cost (1C-style o'rtacha o'lchangan tannarx), instead of overwriting it.
 app.post('/api/inventory-movements', authenticate, async (req, res) => {
     try {
-        const { productId, type, quantity, date, description } = req.body;
+        const { productId, type, quantity, date, description, unitCost } = req.body;
         if (!productId || !type || quantity === undefined || isNaN(parseInt(quantity, 10))) {
             return res.status(400).json({ error: 'productId, type and quantity are required' });
         }
@@ -617,8 +655,22 @@ app.post('/api/inventory-movements', authenticate, async (req, res) => {
         if (type === 'adjust') {
             newStock = qty;
             await dbRun('UPDATE products SET stock = ? WHERE id = ?', [newStock, productId]);
+        } else if (type === 'in') {
+            signedQuantity = qty;
+            const updatedStock = (product.stock || 0) + signedQuantity;
+            const incomingCost = unitCost !== undefined && unitCost !== null && unitCost !== '' && !isNaN(parseFloat(unitCost))
+                ? parseFloat(unitCost) : null;
+            if (incomingCost !== null) {
+                const oldStock = product.stock || 0;
+                const oldPrice = product.purchasePrice || 0;
+                // O'rtacha o'lchangan tannarx: (eski_zahira*eski_narx + kirim_soni*kirim_narxi) / yangi_jami_zahira
+                const newAvgPrice = updatedStock > 0 ? ((oldStock * oldPrice) + (signedQuantity * incomingCost)) / updatedStock : incomingCost;
+                await dbRun('UPDATE products SET stock = ?, purchasePrice = ? WHERE id = ?', [updatedStock, newAvgPrice, productId]);
+            } else {
+                await dbRun('UPDATE products SET stock = ? WHERE id = ?', [updatedStock, productId]);
+            }
         } else {
-            signedQuantity = type === 'out' ? -qty : qty;
+            signedQuantity = -qty;
             const updatedStock = Math.max(0, (product.stock || 0) + signedQuantity);
             await dbRun('UPDATE products SET stock = ? WHERE id = ?', [updatedStock, productId]);
         }
@@ -705,11 +757,14 @@ app.get('/api/transactions/:id', authenticate, async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-const insertTransaction = async ({ date, clientId, supplierId, payrollRecordId, type, category, description, amount, status, currency, rate, rateDate }) => {
+const insertTransaction = async ({ date, clientId, supplierId, payrollRecordId, type, category, description, amount, status, currency, rate, rateDate, debitAccount, creditAccount }) => {
     const usedCurrency = currency || BASE_CURRENCY;
     const createdAt = new Date().toISOString();
     let appliedRate = 1;
     let appliedRateDate = rateDate || date || createdAt;
+    const accounts = resolveAccounts(type, category);
+    const finalDebitAccount = debitAccount || accounts.debitAccount;
+    const finalCreditAccount = creditAccount || accounts.creditAccount;
 
     if (usedCurrency !== BASE_CURRENCY) {
         if (rate && !isNaN(parseFloat(rate))) {
@@ -729,11 +784,11 @@ const insertTransaction = async ({ date, clientId, supplierId, payrollRecordId, 
     const id = randomUUID();
     const amountBase = amount * appliedRate;
     await dbRun(
-        `INSERT INTO transactions (id, date, clientId, supplierId, payrollRecordId, type, category, description, amount, status, currency, rate, amount_base, rate_date, createdAt)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [id, date || createdAt, clientId || '', supplierId || '', payrollRecordId || '', type, category || '', description || '', amount, status || 'completed', usedCurrency, appliedRate, amountBase, appliedRateDate, createdAt]
+        `INSERT INTO transactions (id, date, clientId, supplierId, payrollRecordId, type, category, description, amount, status, currency, rate, amount_base, rate_date, debitAccount, creditAccount, createdAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [id, date || createdAt, clientId || '', supplierId || '', payrollRecordId || '', type, category || '', description || '', amount, status || 'completed', usedCurrency, appliedRate, amountBase, appliedRateDate, finalDebitAccount, finalCreditAccount, createdAt]
     );
-    return { id, date, clientId, supplierId, payrollRecordId, type, category, description, amount, status, currency: usedCurrency, rate: appliedRate, amount_base: amountBase, rate_date: appliedRateDate, createdAt };
+    return { id, date, clientId, supplierId, payrollRecordId, type, category, description, amount, status, currency: usedCurrency, rate: appliedRate, amount_base: amountBase, rate_date: appliedRateDate, debitAccount: finalDebitAccount, creditAccount: finalCreditAccount, createdAt };
 };
 
 app.post('/api/transactions', authenticate, async (req, res) => {
@@ -781,6 +836,7 @@ app.post('/api/invoices', authenticate, async (req, res) => {
         }
 
         let subtotal = 0;
+        let cogsTotal = 0;
         for (const item of lineItems) {
             if (!item.productId || !item.quantity || item.quantity <= 0 || item.price === undefined || item.price < 0) {
                 return res.status(400).json({ error: 'Each line item needs productId, quantity > 0 and price >= 0' });
@@ -791,6 +847,8 @@ app.post('/api/invoices', authenticate, async (req, res) => {
                 return res.status(400).json({ error: `Not enough stock for "${product.name}". Available: ${product.stock}` });
             }
             subtotal += item.quantity * item.price;
+            // Sotilgan mahsulot tannarxi (COGS) — sotish paytidagi joriy o'rtacha o'lchangan tannarxda hisoblanadi
+            cogsTotal += item.quantity * (product.purchasePrice || 0);
         }
 
         const settings = await getSettingsObject();
@@ -818,7 +876,17 @@ app.post('/api/invoices', authenticate, async (req, res) => {
             description: `Invoice ${invoiceNumber}: ${description || ''}`, amount: total, currency
         });
 
-        res.json({ id, number: invoiceNumber, clientId, description, lineItems, subtotal, vatRate, vatAmount, total, date, status: 'Yaratildi', createdAt, transaction });
+        // Daromad bilan bir vaqtda sotilgan mahsulot tannarxini (COGS) ham xarajat sifatida bosh kitobga yozamiz —
+        // 1C andazasida realizatsiya bitta hujjatda ikkita provodkani (daromad + tannarx) hosil qiladi.
+        let cogsTransaction = null;
+        if (cogsTotal > 0) {
+            cogsTransaction = await insertTransaction({
+                date: date || createdAt, type: 'expense', category: 'cogs',
+                description: `Sotilgan mahsulot tannarxi (COGS): ${invoiceNumber}`, amount: cogsTotal
+            });
+        }
+
+        res.json({ id, number: invoiceNumber, clientId, description, lineItems, subtotal, vatRate, vatAmount, total, date, status: 'Yaratildi', createdAt, transaction, cogsTransaction });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -881,40 +949,54 @@ app.get('/api/production/orders', authenticate, async (req, res) => {
 });
 
 // Consumes material stock, produces finished-product stock, mirrors the previous
-// localStorage addProductionOrder logic (js/storage.js).
+// localStorage addProductionOrder logic (js/storage.js). An optional overheadCost
+// (bilvosita xarajatlar: elektr, ijara va h.k.) is added on top of material cost, and the
+// finished product's purchasePrice is recomputed as a weighted-average cost, matching the
+// same 1C-style logic used for inventory stock-in.
 app.post('/api/production/orders', authenticate, async (req, res) => {
     try {
-        const { finishedProductId, producedQuantity, materials, date, description, recipeId } = req.body;
+        const { finishedProductId, producedQuantity, materials, date, description, recipeId, overheadCost } = req.body;
         if (!finishedProductId || !producedQuantity || producedQuantity <= 0 || !Array.isArray(materials) || materials.length === 0) {
             return res.status(400).json({ error: 'finishedProductId, producedQuantity and materials are required' });
         }
 
-        let productionCost = 0;
+        let materialCost = 0;
         for (const item of materials) {
             const product = await dbGet('SELECT * FROM products WHERE id = ?', [item.productId]);
             if (!product) return res.status(400).json({ error: `Material product not found: ${item.productId}` });
             if (product.stock < item.quantity) {
                 return res.status(400).json({ error: `Not enough stock for material "${product.name}". Available: ${product.stock}` });
             }
-            productionCost += (product.purchasePrice || 0) * item.quantity;
+            materialCost += (product.purchasePrice || 0) * item.quantity;
         }
+
+        const finishedProduct = await dbGet('SELECT * FROM products WHERE id = ?', [finishedProductId]);
+        if (!finishedProduct) return res.status(400).json({ error: `Finished product not found: ${finishedProductId}` });
+
+        const overhead = parseFloat(overheadCost) || 0;
+        const productionCost = materialCost + overhead;
 
         const id = randomUUID();
         const createdAt = new Date().toISOString();
         const materialCostPerUnit = producedQuantity > 0 ? productionCost / producedQuantity : 0;
 
         await dbRun(
-            `INSERT INTO production_orders (id, finishedProductId, producedQuantity, materials, date, description, recipeId, productionCost, materialCostPerUnit, createdAt)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [id, finishedProductId, producedQuantity, JSON.stringify(materials), date || createdAt, description || '', recipeId || '', productionCost, materialCostPerUnit, createdAt]
+            `INSERT INTO production_orders (id, finishedProductId, producedQuantity, materials, date, description, recipeId, productionCost, materialCostPerUnit, overheadCost, createdAt)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [id, finishedProductId, producedQuantity, JSON.stringify(materials), date || createdAt, description || '', recipeId || '', productionCost, materialCostPerUnit, overhead, createdAt]
         );
 
         for (const item of materials) {
             await dbRun('UPDATE products SET stock = stock - ? WHERE id = ?', [item.quantity, item.productId]);
         }
-        await dbRun('UPDATE products SET stock = stock + ? WHERE id = ?', [producedQuantity, finishedProductId]);
 
-        res.json({ id, finishedProductId, producedQuantity, materials, date, description, recipeId, productionCost, materialCostPerUnit, createdAt });
+        const oldStock = finishedProduct.stock || 0;
+        const oldPrice = finishedProduct.purchasePrice || 0;
+        const newTotalStock = oldStock + producedQuantity;
+        const newAvgPrice = newTotalStock > 0 ? ((oldStock * oldPrice) + (producedQuantity * materialCostPerUnit)) / newTotalStock : materialCostPerUnit;
+        await dbRun('UPDATE products SET stock = ?, purchasePrice = ? WHERE id = ?', [newTotalStock, newAvgPrice, finishedProductId]);
+
+        res.json({ id, finishedProductId, producedQuantity, materials, date, description, recipeId, productionCost, materialCostPerUnit, overheadCost: overhead, createdAt });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1121,6 +1203,12 @@ app.delete('/api/documents/:id', authenticate, async (req, res) => {
         await dbRun('DELETE FROM documents WHERE id = ?', [req.params.id]);
         res.json({ message: 'Document deleted' });
     } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ==================== CHART OF ACCOUNTS (Schyotlar rejasi) ====================
+
+app.get('/api/chart-of-accounts', authenticate, (req, res) => {
+    res.json(Object.entries(CHART_OF_ACCOUNTS).map(([code, v]) => ({ code, ...v })));
 });
 
 // ==================== STATISTICS ====================

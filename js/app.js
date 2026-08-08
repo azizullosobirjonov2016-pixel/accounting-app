@@ -478,6 +478,7 @@ class AccountingApp {
                 this.updateProductionCostPreview();
             }
         });
+        document.getElementById('productionOverheadCost')?.addEventListener('input', () => this.updateProductionCostPreview());
         document.getElementById('recipeForm').addEventListener('submit', (e) => this.handleSaveRecipe(e));
         document.getElementById('addRecipeMaterialRowBtn').addEventListener('click', () => this.addRecipeMaterialRow());
 
@@ -1754,6 +1755,9 @@ class AccountingApp {
             totalCost += (product ? product.purchasePrice : 0) * quantity;
         });
 
+        const overheadCost = parseFloat(document.getElementById('productionOverheadCost')?.value) || 0;
+        totalCost += overheadCost;
+
         const producedQuantity = parseFloat(document.getElementById('productionQuantity').value) || 1;
         const unitCost = producedQuantity > 0 ? totalCost / producedQuantity : 0;
 
@@ -1967,10 +1971,11 @@ class AccountingApp {
         }
 
         const recipeId = document.getElementById('productionRecipeSelect').value;
+        const overheadCost = parseFloat(document.getElementById('productionOverheadCost')?.value) || 0;
 
         // Zahira tekshiruvi, tannarx hisoblash va materiallar/mahsulot zahirasini yangilash serverda amalga oshadi
         try {
-            await api.addProductionOrder({ finishedProductId, producedQuantity, materials, date, description, recipeId });
+            await api.addProductionOrder({ finishedProductId, producedQuantity, materials, date, description, recipeId, overheadCost });
         } catch (err) {
             this.showMessage('Ishlab chiqarish buyurtmasini saqlashda xato: ' + err.message, 'error');
             return;
@@ -2001,6 +2006,8 @@ class AccountingApp {
             const finishedProduct = productMap.get(order.finishedProductId);
             const productName = finishedProduct ? finishedProduct.name : 'Noma\'lum';
             const cost = parseFloat(order.productionCost || 0);
+            const overhead = parseFloat(order.overheadCost || 0);
+            const costTitle = overhead > 0 ? `shundan bilvosita xarajat: ${this.formatNumber(overhead)} so'm` : '';
             const materialSummary = order.materials.map(item => {
                 const product = productMap.get(item.productId);
                 return `${product ? product.name : 'Noma\'lum'} (${item.quantity})`;
@@ -2012,7 +2019,7 @@ class AccountingApp {
                 <td>${productName}</td>
                 <td>${order.producedQuantity}</td>
                 <td>${materialSummary}</td>
-                <td><strong>${this.formatNumber(cost)} so'm</strong></td>
+                <td title="${costTitle}"><strong>${this.formatNumber(cost)} so'm</strong></td>
                 <td>
                     <button class="btn btn-danger" onclick="app.deleteProductionOrder('${order.id}')" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;">O'chirish</button>
                 </td>
@@ -2508,6 +2515,122 @@ class AccountingApp {
                 <p><strong>Ijtimoiy soliq (ISHV) stavkasi:</strong> ${settings.taxSSV}%</p>
                 <p><strong>JShDS (xodimlar uchun) stavkasi:</strong> ${settings.taxNDFL}%</p>
                 <p><strong>Deklaratsiya topshirish:</strong> QQS — har oy, Foyda solig'i — har chorak, JShDS/ISHV — har oy (soliq.uz orqali)</p>
+            </div>
+        `;
+
+        // ================= QQS (chiqish QQS) — davr uchun sotuv hisob-fakturalaridan =================
+        const allInvoices = await api.getInvoices();
+        const invoicesInPeriod = allInvoices.filter(inv => inPeriod(inv.date));
+        const outputVAT = invoicesInPeriod.reduce((sum, inv) => sum + (parseFloat(inv.vatAmount) || 0), 0);
+
+        if (!isSimplified) {
+            html += `
+                <h4>QQS HISOB-KITOBI</h4>
+                <table class="report-table">
+                    <tr>
+                        <td>Chiqish QQS (sotuv hisob-fakturalaridan yig'ilgan, ${settings.taxVAT}%):</td>
+                        <td><strong>${this.formatNumber(outputVAT)} so'm</strong></td>
+                    </tr>
+                </table>
+                <p class="excel-hint">Kirish QQS (xarid hujjatlaridan) tizimda alohida hisoblanmaydi — byudjetga to'lanadigan yakuniy QQS'ni aniqlash uchun buxgalter kirish QQS'ni qo'lda ayirishi kerak.</p>
+            `;
+        }
+
+        // ================= BOSH KITOB — schyotlar bo'yicha aylanma (tanlangan davr) =================
+        const chartOfAccounts = await api.getChartOfAccounts();
+        const accountMap = new Map(chartOfAccounts.map(a => [a.code, a]));
+        const amountOfTx = (t) => parseFloat(t.amount_base !== undefined && t.amount_base !== null ? t.amount_base : t.amount) || 0;
+
+        const buildLedger = (txList) => {
+            const ledger = {};
+            txList.forEach(t => {
+                const amt = amountOfTx(t);
+                if (t.debitAccount) {
+                    ledger[t.debitAccount] = ledger[t.debitAccount] || { debit: 0, credit: 0 };
+                    ledger[t.debitAccount].debit += amt;
+                }
+                if (t.creditAccount) {
+                    ledger[t.creditAccount] = ledger[t.creditAccount] || { debit: 0, credit: 0 };
+                    ledger[t.creditAccount].credit += amt;
+                }
+            });
+            return ledger;
+        };
+
+        const periodLedger = buildLedger(transactions);
+        const ledgerCodes = Object.keys(periodLedger).sort();
+
+        html += `
+            <h4>BOSH KITOB — SCHYOTLAR BO'YICHA AYLANMA (tanlangan davr)</h4>
+            <table class="report-table">
+                <thead>
+                    <tr><th>Schyot</th><th>Nomi</th><th>Debet aylanma</th><th>Kredit aylanma</th><th>Qoldiq</th></tr>
+                </thead>
+        `;
+        ledgerCodes.forEach(code => {
+            const acc = accountMap.get(code) || { name: code, nature: 'debit' };
+            const l = periodLedger[code];
+            const balance = acc.nature === 'credit' ? (l.credit - l.debit) : (l.debit - l.credit);
+            html += `
+                <tr>
+                    <td>${code}</td>
+                    <td>${acc.name}</td>
+                    <td>${this.formatNumber(l.debit)} so'm</td>
+                    <td>${this.formatNumber(l.credit)} so'm</td>
+                    <td><strong>${this.formatNumber(balance)} so'm</strong></td>
+                </tr>
+            `;
+        });
+        html += `</table>`;
+
+        // ================= BALANS (AKTIV / PASSIV) — toDate holatiga ko'ra, kumulyativ =================
+        const upToDate = allTransactions.filter(t => new Date(t.date) <= toDate);
+        const cumulativeLedger = buildLedger(upToDate);
+        const acctBalance = (code) => {
+            const l = cumulativeLedger[code] || { debit: 0, credit: 0 };
+            const acc = accountMap.get(code) || { nature: 'debit' };
+            return acc.nature === 'credit' ? (l.credit - l.debit) : (l.debit - l.credit);
+        };
+
+        const stockValue = productsForOrders.reduce((sum, p) => sum + (p.stock || 0) * (p.purchasePrice || 0), 0);
+        const cashBalance = acctBalance('5010');
+        const receivables = acctBalance('4010');
+        const payables = acctBalance('6010');
+        const taxPayable = acctBalance('6410');
+        const socialTaxPayable = acctBalance('6520');
+        const salaryPayable = acctBalance('6710');
+
+        const cumIncome = upToDate.filter(t => t.type === 'income').reduce((s, t) => s + amountOfTx(t), 0);
+        const cumExpense = upToDate.filter(t => t.type === 'expense').reduce((s, t) => s + amountOfTx(t), 0);
+        const cumGrossProfit = cumIncome - cumExpense;
+        const cumTax = isSimplified
+            ? cumIncome * ((parseFloat(settings.taxTurnover) || 0) / 100)
+            : (cumGrossProfit > 0 ? cumGrossProfit * ((parseFloat(settings.taxIncome) || 0) / 100) : 0);
+        const cumNetProfit = cumGrossProfit - cumTax;
+
+        const totalAktiv = stockValue + cashBalance + receivables;
+        const totalPassiv = payables + taxPayable + socialTaxPayable + salaryPayable + cumNetProfit;
+
+        html += `
+            <h4>BALANS (AKTIV / PASSIV) — ${toDate.toLocaleDateString('uz-UZ')} holatiga</h4>
+            <div class="report-summary">
+                <table class="report-table">
+                    <tr><th colspan="2">AKTIV</th></tr>
+                    <tr><td>Ombor qiymati (tovar-moddiy zaxiralar):</td><td>${this.formatNumber(stockValue)} so'm</td></tr>
+                    <tr><td>Kassa/bank qoldig'i:</td><td>${this.formatNumber(cashBalance)} so'm</td></tr>
+                    <tr><td>Xaridorlar debitorlik qarzi:</td><td>${this.formatNumber(receivables)} so'm</td></tr>
+                    <tr style="background:#d1ecf1;"><td><strong>Jami aktiv:</strong></td><td><strong>${this.formatNumber(totalAktiv)} so'm</strong></td></tr>
+                </table>
+                <table class="report-table">
+                    <tr><th colspan="2">PASSIV</th></tr>
+                    <tr><td>Ta'minotchilar kreditorlik qarzi:</td><td>${this.formatNumber(payables)} so'm</td></tr>
+                    <tr><td>Byudjetga soliqlar bo'yicha qarz:</td><td>${this.formatNumber(taxPayable)} so'm</td></tr>
+                    <tr><td>Ijtimoiy sug'urta (ISHV) bo'yicha qarz:</td><td>${this.formatNumber(socialTaxPayable)} so'm</td></tr>
+                    <tr><td>Xodimlarga ish haqi bo'yicha qarz:</td><td>${this.formatNumber(salaryPayable)} so'm</td></tr>
+                    <tr><td>Kapital (yig'ilgan sof foyda):</td><td>${this.formatNumber(cumNetProfit)} so'm</td></tr>
+                    <tr style="background:#d1ecf1;"><td><strong>Jami passiv:</strong></td><td><strong>${this.formatNumber(totalPassiv)} so'm</strong></td></tr>
+                </table>
+                <p class="excel-hint">Bu soddalashtirilgan balans: har bir tranzaksiya turi/kategoriyasiga qarab avtomatik biriktirilgan Debet/Kredit schyotlar asosida hisoblangan (1C andazasidagi kabi), lekin naqd/hisob-kitob (kassa/bank) va qarz to'lovlari alohida hujjat sifatida yuritilmaganligi sabab taxminiy xarakterga ega.</p>
             </div>
         `;
 
@@ -3560,19 +3683,23 @@ class AccountingApp {
         const title = document.getElementById('stockMovementTitle');
         const submitBtn = document.getElementById('movementSubmitBtn');
         const quantityLabel = document.querySelector('label[for="movementQuantity"]');
+        const unitCostGroup = document.getElementById('movementUnitCostGroup');
 
         if (type === 'in') {
             title.textContent = 'Ombor Kirimi';
             submitBtn.textContent = 'Kirim qilish';
             if (quantityLabel) quantityLabel.textContent = 'Miqdor:';
+            if (unitCostGroup) unitCostGroup.style.display = '';
         } else if (type === 'out') {
             title.textContent = 'Ombor Chiqimi';
             submitBtn.textContent = 'Chiqim qilish';
             if (quantityLabel) quantityLabel.textContent = 'Miqdor:';
+            if (unitCostGroup) unitCostGroup.style.display = 'none';
         } else {
             title.textContent = 'Zahira Tuzatish';
             submitBtn.textContent = 'Tuzatish';
             if (quantityLabel) quantityLabel.textContent = 'Yangi zahira miqdori:';
+            if (unitCostGroup) unitCostGroup.style.display = 'none';
         }
 
         this.currentMovementType = type;
@@ -3589,6 +3716,8 @@ class AccountingApp {
         const quantity = parseInt(document.getElementById('movementQuantity').value);
         const date = document.getElementById('movementDate').value;
         const description = document.getElementById('movementDescription').value;
+        const unitCostRaw = document.getElementById('movementUnitCost').value;
+        const unitCost = this.currentMovementType === 'in' && unitCostRaw !== '' ? parseFloat(unitCostRaw) : undefined;
 
         if (!productId || isNaN(quantity)) {
             this.showMessage('Mahsulot va miqdorni to\'g\'ri kiriting', 'error');
@@ -3597,7 +3726,7 @@ class AccountingApp {
 
         try {
             await this.withLoading(document.getElementById('movementSubmitBtn'), () =>
-                api.addInventoryMovement({ productId, type: this.currentMovementType, quantity, date, description })
+                api.addInventoryMovement({ productId, type: this.currentMovementType, quantity, date, description, unitCost })
             );
         } catch (err) {
             this.showMessage('Harakatni saqlashda xato: ' + err.message, 'error');
@@ -3831,6 +3960,7 @@ class AccountingApp {
             'sales': '📦 Sotuvlar',
             'services': '🔧 Xizmatlar',
             'materials': '📋 Materiallar xaridi',
+            'cogs': '🏷️ Sotilgan mahsulot tannarxi (COGS)',
             'salaries': '👥 Ishchilarga ish haqi',
             'social_tax': '🏛️ Ijtimoiy soliq (ISHV)',
             'rent': '🏢 Ijaraga to\'lov',
