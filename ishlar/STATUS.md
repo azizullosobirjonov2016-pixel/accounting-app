@@ -199,6 +199,13 @@ Loyiha localStorage'dan butunlay voz kechib, faqat serverga (Express + SQLite) t
 - Ko'p-foydalanuvchili (bir vaqtda ikki sessiya bir xil ma'lumotni ko'radi) Playwright orqali tasdiqlandi
 - Zaxira olish/qaytarish (backup/restore) ID moslashtirish bilan qayta yozildi
 
+## 🔄 2026-08-21 yangilanishi: kirim/chiqim fakturalar uchun dublikat tekshiruvi
+
+"📨 Elektron hujjatlar almashinuvi" (Savdo) bo'limiga takrorlangan hisob-fakturalarni (kirim — yetkazib beruvchidan xarid, chiqim — mijozga sotuv) aniqlash va o'chirish funksiyasi qo'shildi:
+- `js/app.js`: `checkDuplicateInvoices()` — kontragent + sana + faktura summasi bo'yicha guruhlaydi, har bir guruhda eng birinchi yaratilgan hujjatni saqlab qolib, qolgan nusxalarni foydalanuvchi tasdig'idan so'ng o'chiradi.
+- `index.html`: "🔁 Takrorlarni tekshirish" tugmasi qo'shildi (Import/Eksport tugmalari yonida).
+- Playwright orqali qo'lda test qilindi: haqiqiy `docs_301758771.xlsx` fayli import qilinib, sun'iy dublikat qo'shildi va funksiya uni to'g'ri aniqlab o'chirdi.
+
 ## 📞 Support
 
 Agar qandaydir savollar bo'lsa, bu task file'ni referans qilib ishni davom ettirib chiqing.

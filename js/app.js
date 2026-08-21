@@ -530,6 +530,7 @@ class AccountingApp {
         document.getElementById('docExchangeExportBtn')?.addEventListener('click', () => this.exportDocumentExchangeToExcel());
         document.getElementById('docExchangeImportBtn')?.addEventListener('click', () => document.getElementById('docExchangeImportInput')?.click());
         document.getElementById('docExchangeImportInput')?.addEventListener('change', (e) => this.importDocumentExchangeFromExcel(e));
+        document.getElementById('docExchangeDuplicatesBtn')?.addEventListener('click', () => this.checkDuplicateInvoices());
 
         // Mijozlar/Yetkazib beruvchilar — davr bo'yicha qarzdorlik-haqdorlik grafigi va Excel hisoboti
         document.getElementById('clientsBalanceReportBtn')?.addEventListener('click', () => this.exportPartyBalanceReport('client'));
@@ -3612,6 +3613,70 @@ class AccountingApp {
             this.showMessage('Import xatosi: ' + err.message, 'error');
         }
         e.target.value = '';
+    }
+
+    // Kirim (yetkazib beruvchidan xarid) va chiqim (mijozga sotuv) hisob-fakturalarini bitta guruhlash
+    // kaliti bo'yicha solishtiradi: kontragent + sana + fakturadagi umumiy summa. Raqami avtomatik
+    // generatsiya qilinganligi sabab (masalan qayta import qilinganda) ikki xil raqamli, lekin aslida
+    // bir xil fakturaga tegishli yozuvlarni ham aniqlaydi.
+    duplicateInvoiceKey(doc) {
+        let total = 0;
+        try {
+            const meta = JSON.parse(doc.meta || '{}');
+            total = (meta.items || []).reduce((sum, it) => sum + (parseFloat(it.quantity) || 0) * (parseFloat(it.price) || 0), 0);
+        } catch (err) { /* meta yaroqsiz bo'lsa 0 summa bilan davom etiladi */ }
+        return `${doc.clientId || ''}|${doc.supplierId || ''}|${doc.date}|${Math.round(total)}`;
+    }
+
+    // Elektron hisob-fakturalar (kirim/chiqim) orasidan takrorlanganlarini topadi: har bir guruhda
+    // eng birinchi yaratilgan hujjat saqlanadi, qolgan nusxalar foydalanuvchi tasdig'idan so'ng o'chiriladi.
+    async checkDuplicateInvoices() {
+        const documents = await api.getDocuments();
+        const invoices = documents.filter(d => d.type === 'invoice-faktura');
+
+        const groups = new Map();
+        invoices.forEach(doc => {
+            const key = this.duplicateInvoiceKey(doc);
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key).push(doc);
+        });
+
+        const duplicateGroups = [...groups.values()].filter(g => g.length > 1);
+        if (duplicateGroups.length === 0) {
+            this.showMessage('Takrorlangan kirim/chiqim hisob-fakturalari topilmadi', 'success');
+            return;
+        }
+
+        duplicateGroups.forEach(g => g.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)));
+        const toDelete = duplicateGroups.flatMap(g => g.slice(1));
+
+        const preview = duplicateGroups.slice(0, 5)
+            .map(g => `№${g[0].number} — ${g.length} nusxa (${documentManager.formatDate(g[0].date)})`)
+            .join('\n');
+        const more = duplicateGroups.length > 5 ? `\n... yana ${duplicateGroups.length - 5} ta guruh` : '';
+
+        const confirmed = await this.confirmDialog(
+            `${duplicateGroups.length} ta takrorlangan hisob-faktura guruhi topildi (jami ${toDelete.length} ta ortiqcha nusxa).\n` +
+            `Har bir guruhda eng birinchi yaratilgan hujjat saqlanadi, qolganlari o'chiriladi:\n\n${preview}${more}\n\n` +
+            `Diqqat: hujjat bilan bog'liq ombor kirim/chiqim harakatlari avtomatik qaytarilmaydi — kerak bo'lsa "📦 Ombor" bo'limida qo'lda tekshiring.\n\n` +
+            `O'chirishni tasdiqlaysizmi?`,
+            'Takrorlangan fakturalar'
+        );
+        if (!confirmed) return;
+
+        let deleted = 0;
+        const errors = [];
+        for (const doc of toDelete) {
+            try {
+                await api.deleteDocument(doc.id);
+                deleted++;
+            } catch (err) {
+                errors.push(`№${doc.number}: ${err.message}`);
+            }
+        }
+
+        await this.displayDocumentExchange();
+        this.reportImportResult('Takrorlangan fakturalar', deleted, errors, `${deleted} ta takrorlangan hisob-faktura o'chirildi`);
     }
 
     // INVENTORY METHODS
