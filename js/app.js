@@ -2759,8 +2759,8 @@ class AccountingApp {
             }));
 
             const profitRate = parseFloat(settings.taxIncome) || 0;
-            const taxBase = Math.max(0, incomeTotal - expenseTotal);
-            const profitTaxAmount = taxBase * (profitRate / 100);
+            const taxBase = incomeTotal - expenseTotal;
+            const profitTaxAmount = taxBase > 0 ? taxBase * (profitRate / 100) : 0;
             sections.push(documentManager.buildProfitTaxReport({
                 company, periodLabel, totalIncome: incomeTotal, totalExpense: expenseTotal,
                 taxBase, taxRate: profitRate, taxAmount: profitTaxAmount
