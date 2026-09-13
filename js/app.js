@@ -391,6 +391,9 @@ class AccountingApp {
         document.getElementById('supplierForm').addEventListener('submit', (e) => this.handleAddSupplier(e));
         document.getElementById('transactionForm').addEventListener('submit', (e) => this.handleAddTransaction(e));
         document.getElementById('settingsForm').addEventListener('submit', (e) => this.handleSaveSettings(e));
+        document.getElementById('taxSSVType').addEventListener('change', (e) => {
+            document.getElementById('taxSSV').value = e.target.value === 'byudjet' ? 25 : 12;
+        });
         // Currency admin forms (if present)
         if (document.getElementById('currencyForm')) {
             document.getElementById('currencyForm').addEventListener('submit', (e) => this.handleAddCurrency(e));
@@ -2753,14 +2756,13 @@ class AccountingApp {
             const vatRate = parseFloat(settings.taxVAT) || 0;
             const outputVat = incomeTotal * (vatRate / 100);
             const inputVat = expenseTotal * (vatRate / 100);
-            const payableVat = Math.max(0, outputVat - inputVat);
             sections.push(documentManager.buildVatReport({
-                company, periodLabel, outputBase: incomeTotal, outputVat, inputBase: expenseTotal, inputVat, payableVat, vatRate
+                company, periodLabel, outputBase: incomeTotal, outputVat, inputBase: expenseTotal, inputVat, vatRate
             }));
 
             const profitRate = parseFloat(settings.taxIncome) || 0;
-            const taxBase = Math.max(0, incomeTotal - expenseTotal);
-            const profitTaxAmount = taxBase * (profitRate / 100);
+            const taxBase = incomeTotal - expenseTotal;
+            const profitTaxAmount = taxBase > 0 ? taxBase * (profitRate / 100) : 0;
             sections.push(documentManager.buildProfitTaxReport({
                 company, periodLabel, totalIncome: incomeTotal, totalExpense: expenseTotal,
                 taxBase, taxRate: profitRate, taxAmount: profitTaxAmount
@@ -2809,6 +2811,7 @@ class AccountingApp {
         document.getElementById('taxIncome').value = settings.taxIncome;
         document.getElementById('taxTurnover').value = settings.taxTurnover;
         document.getElementById('taxSSV').value = settings.taxSSV;
+        document.getElementById('taxSSVType').value = settings.taxSSVType || (parseFloat(settings.taxSSV) === 25 ? 'byudjet' : 'umumiy');
         document.getElementById('taxNDFL').value = settings.taxNDFL;
         document.getElementById('productionMarkup').value = settings.productionMarkup ?? 20;
         document.getElementById('autoCalculateTax').checked = settings.autoCalculateTax;
@@ -2840,6 +2843,7 @@ class AccountingApp {
             taxVAT: parseFloat(document.getElementById('taxVAT').value),
             taxIncome: parseFloat(document.getElementById('taxIncome').value),
             taxTurnover: parseFloat(document.getElementById('taxTurnover').value),
+            taxSSVType: document.getElementById('taxSSVType').value,
             taxSSV: parseFloat(document.getElementById('taxSSV').value),
             taxNDFL: parseFloat(document.getElementById('taxNDFL').value),
             productionMarkup: parseFloat(document.getElementById('productionMarkup').value) || 0,

@@ -343,7 +343,10 @@ class DocumentManager {
     }
 
     buildVatReport(data) {
-        const { company, periodLabel, outputBase, outputVat, inputBase, inputVat, payableVat, vatRate } = data;
+        const { company, periodLabel, outputBase, outputVat, inputBase, inputVat, vatRate } = data;
+        const netVat = outputVat - inputVat;
+        const payableVat = Math.max(0, netVat);
+        const creditVat = Math.max(0, -netVat);
         return `
             ${this.taxReportHeader("QQS BO'YICHA HISOBOT-DEKLARATSIYA", company, periodLabel)}
             <table class="doc-table">
@@ -354,6 +357,7 @@ class DocumentManager {
                     <tr><td>030</td><td>Xarid bo'yicha aylanma (zachyotga qabul qilinadigan)</td><td>${this.fmt(inputBase)}</td></tr>
                     <tr><td>040</td><td>Zachyot qilinadigan QQS (${vatRate}%)</td><td><strong>${this.fmt(inputVat)}</strong></td></tr>
                     <tr style="background:#fff3cd;"><td>050</td><td><strong>Byudjetga to'lanadigan QQS</strong></td><td><strong>${this.fmt(payableVat)}</strong></td></tr>
+                    ${creditVat > 0 ? `<tr style="background:#d1ecf1;"><td>060</td><td><strong>Keyingi davrga o'tkaziladigan QQS ortig'i (kredit)</strong></td><td><strong>${this.fmt(creditVat)}</strong></td></tr>` : ''}
                 </tbody>
             </table>
             <p class="doc-note">Eslatma: hisoblash davr ichidagi tranzaksiyalar (daromad/chiqim) asosida taxminiy amalga oshirilgan. Har bir bitim bo'yicha aniq QQS uchun "📨 Elektron hujjatlar almashinuvi" bo'limidagi elektron hisob-fakturalarni tekshiring va rasmiy topshirishdan oldin soliq.uz shaxsiy kabinetida solishtiring.</p>`;

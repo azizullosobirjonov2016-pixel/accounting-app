@@ -12,9 +12,14 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 const BASE_CURRENCY = process.env.BASE_CURRENCY || 'UZS';
+const DB_PATH = process.env.DB_PATH || './accounting.db';
+
+if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
+    console.error('⚠️  OGOHLANTIRISH: JWT_SECRET .env faylida belgilanmagan — production rejimida standart (nomaxfiy) kalit ishlatilmoqda. Iltimos, .env fayliga kuchli JWT_SECRET qo\'ying.');
+}
 
 // Middleware
-app.use(cors());
+app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
@@ -22,7 +27,7 @@ app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname)));
 
 // Database initialization
-const db = new sqlite3.Database('./accounting.db', (err) => {
+const db = new sqlite3.Database(DB_PATH, (err) => {
     if (err) console.error('Database connection error:', err);
     else console.log('Connected to SQLite database');
 });
@@ -300,6 +305,7 @@ const DEFAULT_SETTINGS = {
     taxVAT: '12',
     taxIncome: '15',
     taxTurnover: '4',
+    taxSSVType: 'umumiy',
     taxSSV: '12',
     taxNDFL: '12',
     defaultCurrency: BASE_CURRENCY,
@@ -1251,6 +1257,14 @@ app.use((req, res) => {
 app.use((err, req, res, next) => {
     console.error('Server error:', err);
     res.status(500).json({ error: 'Internal server error' });
+});
+
+// Kutilmagan xatolar serverni to'satdan yiqitib qo'ymasligi uchun (barqarorlik)
+process.on('unhandledRejection', (reason) => {
+    console.error('Unhandled promise rejection:', reason);
+});
+process.on('uncaughtException', (err) => {
+    console.error('Uncaught exception:', err);
 });
 
 // ==================== START SERVER ====================
