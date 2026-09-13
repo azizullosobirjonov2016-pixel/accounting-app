@@ -2753,9 +2753,8 @@ class AccountingApp {
             const vatRate = parseFloat(settings.taxVAT) || 0;
             const outputVat = incomeTotal * (vatRate / 100);
             const inputVat = expenseTotal * (vatRate / 100);
-            const payableVat = Math.max(0, outputVat - inputVat);
             sections.push(documentManager.buildVatReport({
-                company, periodLabel, outputBase: incomeTotal, outputVat, inputBase: expenseTotal, inputVat, payableVat, vatRate
+                company, periodLabel, outputBase: incomeTotal, outputVat, inputBase: expenseTotal, inputVat, vatRate
             }));
 
             const profitRate = parseFloat(settings.taxIncome) || 0;
