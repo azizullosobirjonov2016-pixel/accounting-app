@@ -391,6 +391,9 @@ class AccountingApp {
         document.getElementById('supplierForm').addEventListener('submit', (e) => this.handleAddSupplier(e));
         document.getElementById('transactionForm').addEventListener('submit', (e) => this.handleAddTransaction(e));
         document.getElementById('settingsForm').addEventListener('submit', (e) => this.handleSaveSettings(e));
+        document.getElementById('taxSSVType').addEventListener('change', (e) => {
+            document.getElementById('taxSSV').value = e.target.value === 'byudjet' ? 25 : 12;
+        });
         // Currency admin forms (if present)
         if (document.getElementById('currencyForm')) {
             document.getElementById('currencyForm').addEventListener('submit', (e) => this.handleAddCurrency(e));
@@ -2808,6 +2811,7 @@ class AccountingApp {
         document.getElementById('taxIncome').value = settings.taxIncome;
         document.getElementById('taxTurnover').value = settings.taxTurnover;
         document.getElementById('taxSSV').value = settings.taxSSV;
+        document.getElementById('taxSSVType').value = settings.taxSSVType || (parseFloat(settings.taxSSV) === 25 ? 'byudjet' : 'umumiy');
         document.getElementById('taxNDFL').value = settings.taxNDFL;
         document.getElementById('productionMarkup').value = settings.productionMarkup ?? 20;
         document.getElementById('autoCalculateTax').checked = settings.autoCalculateTax;
@@ -2839,6 +2843,7 @@ class AccountingApp {
             taxVAT: parseFloat(document.getElementById('taxVAT').value),
             taxIncome: parseFloat(document.getElementById('taxIncome').value),
             taxTurnover: parseFloat(document.getElementById('taxTurnover').value),
+            taxSSVType: document.getElementById('taxSSVType').value,
             taxSSV: parseFloat(document.getElementById('taxSSV').value),
             taxNDFL: parseFloat(document.getElementById('taxNDFL').value),
             productionMarkup: parseFloat(document.getElementById('productionMarkup').value) || 0,

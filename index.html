@@ -1100,6 +1100,13 @@
                             <input type="number" id="taxTurnover" value="4" min="0" max="100" step="0.1">
                         </div>
                         <div>
+                            <label>Tashkilot moliyalash turi (ISHV stavkasi uchun):</label>
+                            <select id="taxSSVType">
+                                <option value="umumiy">Xo'jalik hisobidagi tashkilot (12%)</option>
+                                <option value="byudjet">Byudjetdan moliyalanadigan tashkilot (25%)</option>
+                            </select>
+                        </div>
+                        <div>
                             <label>Ijtimoiy soliq / ISHV (%):</label>
                             <input type="number" id="taxSSV" value="12" min="0" max="100" step="0.1">
                         </div>
@@ -1112,7 +1119,7 @@
                             <input type="number" id="productionMarkup" value="20" min="0" max="100" step="0.1">
                         </div>
                     </div>
-                    <p class="excel-hint">QQS + Foyda solig'i umumbelgilangan rejimda qo'llanadi. Aylanma solig'i — soddalashtirilgan rejimdagi kichik korxonalar uchun (QQS va Foyda solig'i o'rniga). Ishlab chiqarish ustama foizi — "📨 Elektron hujjatlar almashinuvi" importida omborda topilmagan, lekin kalkulyatsiyasi (retsepti) mavjud mahsulot avtomatik ishlab chiqarilganda, xom ashyo tannarxiga qo'shiladigan mehnat/ishlov xarajati ustamasi.</p>
+                    <p class="excel-hint">QQS + Foyda solig'i umumbelgilangan rejimda qo'llanadi. Aylanma solig'i — soddalashtirilgan rejimdagi kichik korxonalar uchun (QQS va Foyda solig'i o'rniga). Ijtimoiy soliq (ISHV) — xo'jalik hisobidagi tashkilotlar uchun 12%, byudjetdan moliyalanadigan tashkilotlar uchun 25% (tur tanlansa, stavka avtomatik to'ldiriladi, kerak bo'lsa qo'lda o'zgartirish mumkin). Ishlab chiqarish ustama foizi — "📨 Elektron hujjatlar almashinuvi" importida omborda topilmagan, lekin kalkulyatsiyasi (retsepti) mavjud mahsulot avtomatik ishlab chiqarilganda, xom ashyo tannarxiga qo'shiladigan mehnat/ishlov xarajati ustamasi.</p>
                     <button type="submit" class="btn btn-primary">Saqlash</button>
                 </form>
 

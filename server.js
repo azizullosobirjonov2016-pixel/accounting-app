@@ -300,6 +300,7 @@ const DEFAULT_SETTINGS = {
     taxVAT: '12',
     taxIncome: '15',
     taxTurnover: '4',
+    taxSSVType: 'umumiy',
     taxSSV: '12',
     taxNDFL: '12',
     defaultCurrency: BASE_CURRENCY,
