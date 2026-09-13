@@ -9,9 +9,9 @@
 | TASK-3 | api-client.js | ✅ Tugallandi | 🔴 HIGH | 100% |
 | TASK-4 | app.js Server Mode | ✅ Tugallandi | 🔴 HIGH | 100% |
 | TASK-5 | Password Encryption | ✅ Tugallandi | 🟡 MEDIUM | 100% |
-| TASK-6 | Error Handling | 🟡 Chala | 🟡 MEDIUM | 60% |
+| TASK-6 | Error Handling | 🟡 Chala | 🟡 MEDIUM | 80% |
 | TASK-7 | RBAC | ✅ Tugallandi | 🟡 MEDIUM | 90% |
-| TASK-8 | .env Config | 🟡 Chala | 🟡 MEDIUM | 50% |
+| TASK-8 | .env Config | 🟡 Chala | 🟡 MEDIUM | 80% |
 | TASK-9 | Settings UI | ✅ Tugallandi | 🟡 MEDIUM | 90% |
 | TASK-10 | Unit Tests | 🔴 Boshlanmagan | 🟢 LOW | 0% |
 | TASK-11 | Reporting | 🔴 Boshlanmagan | 🟢 LOW | 0% |
@@ -198,6 +198,15 @@ Loyiha localStorage'dan butunlay voz kechib, faqat serverga (Express + SQLite) t
 - `js/app.js`: 3000+ qatorning deyarli barchasi asinxron `api.*` chaqiruvlariga o'tkazildi, `js/storage.js` butunlay o'chirildi
 - Ko'p-foydalanuvchili (bir vaqtda ikki sessiya bir xil ma'lumotni ko'radi) Playwright orqali tasdiqlandi
 - Zaxira olish/qaytarish (backup/restore) ID moslashtirish bilan qayta yozildi
+
+## 🔄 2026-09-13 yangilanishi: TASK-6 va TASK-8 bo'yicha xavfsizlik/barqarorlik yaxshilandi
+
+- `server.js`: `DB_PATH` va `CORS_ORIGIN` endi `.env`dan o'qiladi (avval hardcoded/cheklovsiz edi)
+- Production rejimda `JWT_SECRET` sozlanmagan bo'lsa, konsolga ogohlantirish chiqadi
+- `process.on('uncaughtException'/'unhandledRejection')` qo'shildi — kutilmagan xato butun serverni yiqitib qo'ymaydi
+- `.env.example`ga `CORS_ORIGIN` qo'shildi
+
+**Qolgan ish (TASK-6/8 to'liq 100% uchun)**: har bir endpointdagi `err.message` javoblarini production rejimida umumiy xabarga almashtirish (hozir DB xato tafsilotlari clientga ko'rinishi mumkin); haqiqiy `.env` fayli production serverida qo'lda yaratilishi va maxfiy `JWT_SECRET` qo'yilishi kerak (repo xavfsizligi uchun `.env` git'ga qo'shilmaydi).
 
 ## 📞 Support
 
